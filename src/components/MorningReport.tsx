@@ -1,6 +1,43 @@
 import React, { useState, useMemo } from 'react';
 import { Order } from '../types';
 import { Copy, Check, FileText, Lock, Unlock, AlertTriangle, Building, Truck, Clock, Calendar } from 'lucide-react';
+import { translate } from '../utils/api';
+
+const DRIVERS = [
+  { name: 'חכמת', type: 'מנוף', icon: '🏗️' },
+  { name: 'עלי', type: 'משאית', icon: '🚛' },
+];
+
+const getShortWarehouseName = (wh: string) => {
+  if (wh.includes('החרש')) return 'החרש';
+  if (wh.includes('התלמיד')) return 'התלמיד';
+  return wh.replace('מחסן', '').trim();
+};
+
+const getDriverForOrder = (order: Order, index: number) => {
+  const notesLower = (order.notes || '').toLowerCase();
+  if (notesLower.includes('מנוף') || notesLower.includes('crane')) {
+    return DRIVERS[0]; // חכמת (מנוף)
+  }
+  let charSum = 0;
+  for (let i = 0; i < order.orderNumber.length; i++) {
+    charSum += order.orderNumber.charCodeAt(i);
+  }
+  const driverIndex = (charSum + index) % DRIVERS.length;
+  return DRIVERS[driverIndex];
+};
+
+const getOrderTimeStr = (timestamp: string) => {
+  try {
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return '08:00';
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  } catch (e) {
+    return '08:00';
+  }
+};
 
 interface MorningReportProps {
   orders: Order[];
@@ -73,47 +110,79 @@ export default function MorningReport({ orders, lang }: MorningReportProps) {
 
   // WhatsApp formatted report text
   const reportText = useMemo(() => {
-    const activeDeliv = stats.pending + stats.processing;
-    
-    let text = `*📋 דוח בוקר לוגיסטי יומי - SabanOS*\n`;
-    text += `*תאריך:* ${currentDateStr}\n`;
-    text += `*סטטוס הפצה כללי:*\n\n`;
-    
-    text += `📦 *סה"כ הזמנות רשומות:* ${stats.total}\n`;
-    text += `🚚 *משלוחים בצנרת (פעילים):* ${activeDeliv}\n`;
-    text += `✅ *סופקו בהצלחה:* ${stats.delivered}\n`;
-    text += `⏳ *בהמתנה לטעינה:* ${stats.pending}\n`;
-    text += `⚙️ *בטיפול/הכנה:* ${stats.processing}\n`;
-    text += `❌ *בוטלו:* ${stats.cancelled}\n\n`;
+    const activeOrders = orders.filter(o => o.status === 'pending' || o.status === 'processing');
+    const displayOrders = activeOrders.length > 0 ? activeOrders : orders.slice(0, 5);
 
-    text += `*🏭 חלוקת עומס בין מחסנים (הזמנות פעילות):*\n`;
-    text += `🔹 מחסן החרש: *${stats.charashCount}* משלוחים\n`;
-    text += `🔹 מחסן התלמיד: *${stats.talmidCount}* משלוחים\n\n`;
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, '0');
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const yyyy = today.getFullYear();
+    const dateFormatted = `${dd}/${mm}/${yyyy}`;
+
+    let text = `📅 *דוח בוקר - ח. סבן | ${dateFormatted}*\n\n`;
+
+    // Group display orders by driver
+    const driverGroups: Record<string, { driver: typeof DRIVERS[0], orders: Order[] }> = {};
+    
+    DRIVERS.forEach(d => {
+      driverGroups[d.name] = { driver: d, orders: [] };
+    });
+
+    displayOrders.forEach((o, idx) => {
+      const dr = getDriverForOrder(o, idx);
+      if (!driverGroups[dr.name]) {
+        driverGroups[dr.name] = { driver: dr, orders: [] };
+      }
+      driverGroups[dr.name].orders.push(o);
+    });
+
+    // Append driver blocks
+    Object.values(driverGroups).forEach(group => {
+      if (group.orders.length === 0) return;
+      
+      text += `👤 *${group.driver.name} (${group.driver.type} ${group.driver.icon}):*\n`;
+      group.orders.forEach(o => {
+        const timeStr = getOrderTimeStr(o.timestamp);
+        const shortWh = getShortWarehouseName(o.warehouse);
+        text += `• ${timeStr} | #${o.orderNumber} ${translate(o.customerName, 'he')} - ${translate(o.deliveryAddress, 'he')} (מחסן ${shortWh})\n`;
+      });
+      text += `\n`;
+    });
+
+    // Aggregations
+    const whCounts: Record<string, number> = {};
+    const typeCounts: Record<string, number> = {};
+    
+    displayOrders.forEach((o, idx) => {
+      const shortWh = getShortWarehouseName(o.warehouse);
+      whCounts[shortWh] = (whCounts[shortWh] || 0) + 1;
+      
+      const dr = getDriverForOrder(o, idx);
+      typeCounts[dr.type] = (typeCounts[dr.type] || 0) + 1;
+    });
+
+    const whSummaryStr = Object.entries(whCounts)
+      .map(([name, count]) => `${name} (${count})`)
+      .join(' | ');
+
+    const typeSummaryStr = Object.entries(typeCounts)
+      .map(([name, count]) => `${name} (${count})`)
+      .join(' | ');
+
+    text += `📊 *סיכום סידור:*\n`;
+    text += `סה"כ הזמנות: ${displayOrders.length}\n`;
+    text += `📦 מהמחסנים: ${whSummaryStr}\n`;
+    text += `🚛 סוגי הובלה: ${typeSummaryStr}\n\n`;
 
     if (includeFinancials) {
-      text += `*🔒 נתוני שווי פיננסי (מורשה):*\n`;
-      text += `💰 שווי כולל של הסבב: *₪${stats.totalValue.toLocaleString()}*\n`;
-      text += `🟢 שווי הזמנות שסופקו: *₪${stats.deliveredValue.toLocaleString()}*\n`;
-      text += `🟡 שווי בצנרת להפצה: *₪${stats.pendingValue.toLocaleString()}*\n\n`;
-    } else {
-      text += `*🔒 אבטחת מידע פיננסי:*\n`;
-      text += `_נתוני שווי משלוחים הושמטו מהדוח הסטנדרטי לשמירה על סודיות._\n\n`;
+      const totalAmount = displayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+      text += `💰 *שווי כולל של הסבב:* *₪${totalAmount.toLocaleString()}*\n\n`;
     }
 
-    text += `*⚠️ משלוחים בטיפול מיוחד / עיכובים דחופים:*\n`;
-    if (stats.criticalIssues.length > 0) {
-      stats.criticalIssues.forEach(o => {
-        text += `• הזמנה *#${o.orderNumber}* (${o.customerName}) - ${o.notes || 'יש לבדוק דחיפות'} [${o.status === 'pending' ? 'בהמתנה' : 'בטיפול'}]\n`;
-      });
-    } else {
-      text += `_אין חריגות או עיכובים קריטיים הבוקר. הכל זורם כשורה!_\n`;
-    }
-
-    text += `\n*📊 אחוז ביצוע יומי:* *${stats.successRate}%*\n\n`;
-    text += `_הופק אוטומטית על ידי "Noa AI" - העוזרת הלוגיסטית שלך_`;
+    text += `סידור נעים, שיהיה לנו בוקר טוב! ✨`;
 
     return text;
-  }, [stats, currentDateStr, includeFinancials]);
+  }, [orders, includeFinancials]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(reportText);

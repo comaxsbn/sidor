@@ -17,6 +17,7 @@ import DispatchTable from './components/DispatchTable';
 import AnalyticsView from './components/AnalyticsView';
 import SettingsModal from './components/SettingsModal';
 import OrderHistoryView from './components/OrderHistoryView';
+import DashboardSkeleton from './components/DashboardSkeleton';
 
 import { 
   TrendingUp, 
@@ -683,173 +684,179 @@ export default function App() {
           </div>
 
           {/* Main Tab content rendering */}
-          {currentTab === 'dispatch' && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">
-                    {isHe ? 'לוח סידור הפצה ראשי' : 'Main Dispatch Control'}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {isHe 
-                      ? 'ניהול, סינון ועדכון בזמן אמת של סחורות, מחסנים ויעדי לקוחות קצה.' 
-                      : 'Manage fulfillment pipelines, dispatch status updates, and custom carrier routing.'}
-                  </p>
-                </div>
-              </div>
-              
-              <DispatchTable
-                orders={orders}
-                onUpdateStatus={handleUpdateStatus}
-                onDeleteOrder={handleDeleteOrder}
-                lang={lang}
-                isLoading={isLoading}
-                selectedOrderNumber={selectedOrderNumber}
-                onSelectOrderNumber={setSelectedOrderNumber}
-              />
-            </div>
-          )}
-
-          {currentTab === 'analytics' && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">
-                    {isHe ? 'דוחות וניתוח מוצרים' : 'Product Analytics Dashboard'}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {isHe 
-                      ? 'ניתוח קשרי לקוחות, מוצרים מבוקשים והתפלגות עומס לוגיסטי בין המחסנים.' 
-                      : 'Evaluates fulfillment speed, high-demand SKUs, and storage hub loading metrics.'}
-                  </p>
-                </div>
-              </div>
-
-              <AnalyticsView
-                orders={orders}
-                lang={lang}
-              />
-            </div>
-          )}
-
-          {currentTab === 'map' && (
-            <div className="space-y-4 animate-fade-in h-full flex flex-col min-h-0">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1 shrink-0">
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">
-                    {isHe ? 'מפת סידור הפצה אינטראקטיבית' : 'Interactive Dispatch Map'}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {isHe 
-                      ? 'ניטור גיאוגרפי של יעדי המשלוח, פריסת מחסנים ומיקומי סיכות לקוח בזמן אמת.' 
-                      : 'Real-time geographic tracking of customer delivery endpoints and origin warehouse hubs.'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex-1 min-h-[450px] relative rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-white">
-                <React.Suspense fallback={
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 text-slate-500 gap-3 font-sans" dir="rtl">
-                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-                    <p className="text-xs font-bold">{isHe ? 'טוען מפת הפצה...' : 'Loading interactive map...'}</p>
+          {isLoading ? (
+            <DashboardSkeleton currentTab={currentTab} isHe={isHe} darkMode={darkMode} />
+          ) : (
+            <>
+              {currentTab === 'dispatch' && (
+                <div className="space-y-4 animate-fade-in">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+                    <div>
+                      <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                        {isHe ? 'לוח סידור הפצה ראשי' : 'Main Dispatch Control'}
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        {isHe 
+                          ? 'ניהול, סינון ועדכון בזמן אמת של סחורות, מחסנים ויעדי לקוחות קצה.' 
+                          : 'Manage fulfillment pipelines, dispatch status updates, and custom carrier routing.'}
+                      </p>
+                    </div>
                   </div>
-                }>
-                  <OrderMap
+                  
+                  <DispatchTable
                     orders={orders}
+                    onUpdateStatus={handleUpdateStatus}
+                    onDeleteOrder={handleDeleteOrder}
                     lang={lang}
                     isLoading={isLoading}
                     selectedOrderNumber={selectedOrderNumber}
+                    onSelectOrderNumber={setSelectedOrderNumber}
+                  />
+                </div>
+              )}
+
+              {currentTab === 'analytics' && (
+                <div className="space-y-4 animate-fade-in">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+                    <div>
+                      <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                        {isHe ? 'דוחות וניתוח מוצרים' : 'Product Analytics Dashboard'}
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        {isHe 
+                          ? 'ניתוח קשרי לקוחות, מוצרים מבוקשים והתפלגות עומס לוגיסטי בין המחסנים.' 
+                          : 'Evaluates fulfillment speed, high-demand SKUs, and storage hub loading metrics.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <AnalyticsView
+                    orders={orders}
+                    lang={lang}
+                  />
+                </div>
+              )}
+
+              {currentTab === 'map' && (
+                <div className="space-y-4 animate-fade-in h-full flex flex-col min-h-0">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1 shrink-0">
+                    <div>
+                      <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                        {isHe ? 'מפת סידור הפצה אינטראקטיבית' : 'Interactive Dispatch Map'}
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        {isHe 
+                          ? 'ניטור גיאוגרפי של יעדי המשלוח, פריסת מחסנים ומיקומי סיכות לקוח בזמן אמת.' 
+                          : 'Real-time geographic tracking of customer delivery endpoints and origin warehouse hubs.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 min-h-[450px] relative rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-white">
+                    <React.Suspense fallback={
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 text-slate-500 gap-3 font-sans" dir="rtl">
+                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+                        <p className="text-xs font-bold">{isHe ? 'טוען מפת הפצה...' : 'Loading interactive map...'}</p>
+                      </div>
+                    }>
+                      <OrderMap
+                        orders={orders}
+                        lang={lang}
+                        isLoading={isLoading}
+                        selectedOrderNumber={selectedOrderNumber}
+                        onSelectOrderNumber={(orderNum) => {
+                          setSelectedOrderNumber(orderNum);
+                          if (orderNum) {
+                            setCurrentTab('dispatch');
+                          }
+                        }}
+                        darkMode={darkMode}
+                      />
+                    </React.Suspense>
+                  </div>
+                </div>
+              )}
+
+              {currentTab === 'noa-ai' && (
+                <div className="space-y-4 animate-fade-in h-[calc(100vh-14rem)] md:h-[calc(100vh-12rem)] flex flex-col min-h-[400px]">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1 shrink-0">
+                    <div>
+                      <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                        {isHe ? 'עוזרת לוגיסטית חכמה Noa AI' : 'Noa AI Logistics Assistant'}
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        {isHe 
+                          ? 'צ׳אט אינטראקטיבי לברור סטטוסים, מיקומי הפצה, עיכובים ועומסי מחסנים בזמן אמת.' 
+                          : 'Interactive agent chat to query delivery logs, delay statuses, and live fleet details.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 min-h-0">
+                    <NoaChat
+                      orders={orders}
+                      lang={lang}
+                      onSelectOrderNumber={(orderNum) => {
+                        setSelectedOrderNumber(orderNum);
+                        if (orderNum) {
+                          setCurrentTab('dispatch');
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {currentTab === 'morning-report' && (
+                <div className="space-y-4 animate-fade-in">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+                    <div>
+                      <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                        {isHe ? 'דוח הפצה וריכוז בוקר' : 'Morning Logistics Report'}
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        {isHe 
+                          ? 'הפקת דוח לוגיסטי מסוכם ומאושר המותאם לשיתוף מהיר והעתקה ישירה לקבוצות וואטסאפ של נהגים.' 
+                          : 'Generate consolidated and approved delivery reports formatted for easy driver dispatch via WhatsApp.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <MorningReport
+                    orders={orders}
+                    lang={lang}
+                  />
+                </div>
+              )}
+
+              {currentTab === 'order-history' && (
+                <div className="space-y-4 animate-fade-in">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+                    <div>
+                      <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                        {isHe ? 'יומן מעקב ושינויי סטטוסים' : 'Order Lifecycle Audit History'}
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        {isHe 
+                          ? 'היסטוריית שינויי סטטוסים, עדכוני הפצה, שינויים שבוצעו על ידי מנהלים וסינכרונים בזמן אמת.' 
+                          : 'Audit trail tracking state changes, driver dispatches, and manual manager overrides.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <OrderHistoryView
+                    auditLogs={auditLogs}
+                    lang={lang}
                     onSelectOrderNumber={(orderNum) => {
                       setSelectedOrderNumber(orderNum);
                       if (orderNum) {
                         setCurrentTab('dispatch');
                       }
                     }}
-                    darkMode={darkMode}
                   />
-                </React.Suspense>
-              </div>
-            </div>
-          )}
-
-          {currentTab === 'noa-ai' && (
-            <div className="space-y-4 animate-fade-in h-[calc(100vh-14rem)] md:h-[calc(100vh-12rem)] flex flex-col min-h-[400px]">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1 shrink-0">
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">
-                    {isHe ? 'עוזרת לוגיסטית חכמה Noa AI' : 'Noa AI Logistics Assistant'}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {isHe 
-                      ? 'צ׳אט אינטראקטיבי לברור סטטוסים, מיקומי הפצה, עיכובים ועומסי מחסנים בזמן אמת.' 
-                      : 'Interactive agent chat to query delivery logs, delay statuses, and live fleet details.'}
-                  </p>
                 </div>
-              </div>
-
-              <div className="flex-1 min-h-0">
-                <NoaChat
-                  orders={orders}
-                  lang={lang}
-                  onSelectOrderNumber={(orderNum) => {
-                    setSelectedOrderNumber(orderNum);
-                    if (orderNum) {
-                      setCurrentTab('dispatch');
-                    }
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
-          {currentTab === 'morning-report' && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">
-                    {isHe ? 'דוח הפצה וריכוז בוקר' : 'Morning Logistics Report'}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {isHe 
-                      ? 'הפקת דוח לוגיסטי מסוכם ומאושר המותאם לשיתוף מהיר והעתקה ישירה לקבוצות וואטסאפ של נהגים.' 
-                      : 'Generate consolidated and approved delivery reports formatted for easy driver dispatch via WhatsApp.'}
-                  </p>
-                </div>
-              </div>
-
-              <MorningReport
-                orders={orders}
-                lang={lang}
-              />
-            </div>
-          )}
-
-          {currentTab === 'order-history' && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">
-                    {isHe ? 'יומן מעקב ושינויי סטטוסים' : 'Order Lifecycle Audit History'}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {isHe 
-                      ? 'היסטוריית שינויי סטטוסים, עדכוני הפצה, שינויים שבוצעו על ידי מנהלים וסינכרונים בזמן אמת.' 
-                      : 'Audit trail tracking state changes, driver dispatches, and manual manager overrides.'}
-                  </p>
-                </div>
-              </div>
-
-              <OrderHistoryView
-                auditLogs={auditLogs}
-                lang={lang}
-                onSelectOrderNumber={(orderNum) => {
-                  setSelectedOrderNumber(orderNum);
-                  if (orderNum) {
-                    setCurrentTab('dispatch');
-                  }
-                }}
-              />
-            </div>
+              )}
+            </>
           )}
         </div>
 

@@ -480,64 +480,22 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
   
   let rawList: any[] = [];
   try {
-    const spreadsheetId = extractSpreadsheetId(targetUrl);
-    if (spreadsheetId) {
-      console.log(`Detected Google Sheet ID in frontend: ${spreadsheetId}. Fetching direct CSV...`);
-      // Try fetching specifically the "לוג_הזמנות_מערכת" sheet first
-      const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("לוג_הזמנות_מערכת")}`;
-      let response = await fetch(csvUrl);
-      if (!response.ok) {
-        // Fallback to first sheet
-        const fallbackCsvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv`;
-        response = await fetch(fallbackCsvUrl);
-      }
-      
-      if (response.ok) {
-        const csvText = await response.text();
-        const rows = parseCSV(csvText);
-        
-        // Filter out headers if present
-        let dataRows = rows;
-        if (rows.length > 0) {
-          const firstRowJoin = rows[0].join(" ").toLowerCase();
-          if (
-            firstRowJoin.includes("timestamp") || 
-            firstRowJoin.includes("order") || 
-            firstRowJoin.includes("customer") || 
-            firstRowJoin.includes("תאריך") || 
-            firstRowJoin.includes("הזמנה") ||
-            firstRowJoin.includes("חתימת")
-          ) {
-            dataRows = rows.slice(1);
-          }
-        }
-        rawList = dataRows;
-      } else {
-        throw new Error(`Google Sheet CSV export failed with status ${response.status}`);
-      }
-    } else {
-      // Direct client-to-WebApp fetch using action=getOrders parameter for Netlify compatibility
-      const directUrl = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getOrders`;
-      console.log(`Fetching from direct WebApp URL: ${directUrl}`);
-      const response = await fetch(directUrl);
-      if (!response.ok) {
-        throw new Error(`Google Sheets WebApp returned HTTP ${response.status}`);
-      }
-      const text = await response.text();
-      const trimmed = text.trim();
-      
-      if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
-        throw new Error(
-          "שגיאת הרשאות או הגדרה: הקישור שהוזן החזיר דף אינטרנט (HTML) במקום נתוני JSON. " +
-          "ודא שה-WebApp של גוגל מוגדר לגישת 'Anyone' (כל אחד) ופורסם מחדש."
-        );
-      }
-      
-      const json = JSON.parse(trimmed);
-      rawList = json && json.success && Array.isArray(json.data) 
-        ? json.data 
-        : (Array.isArray(json) ? json : (json.data || json.orders || []));
+    // Route through server proxy to bypass browser-side CORS restriction and prevent "Failed to fetch"
+    const proxyUrl = `/api/orders?webappUrl=${encodeURIComponent(targetUrl)}`;
+    console.log(`Fetching orders via server-side proxy: ${proxyUrl}`);
+    const response = await fetch(proxyUrl);
+    if (!response.ok) {
+      throw new Error(`Google Sheets Proxy returned HTTP ${response.status}`);
     }
+    const json = await response.json();
+    
+    if (json && json.success === false) {
+      throw new Error(json.error || "Failed to fetch via proxy");
+    }
+
+    rawList = json && Array.isArray(json.data) 
+      ? json.data 
+      : (json && json.success && Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : (json.data || json.orders || [])));
       
     if (!Array.isArray(rawList)) {
       throw new Error('Response is not in array format');
@@ -639,10 +597,12 @@ export async function updateLiveOrderStatus(webappUrl: string | undefined, order
   if (!targetUrl) return false;
   
   try {
-    const url = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=updateStatus&orderNumber=${encodeURIComponent(orderNumber)}&status=${encodeURIComponent(status)}`;
-    const response = await fetch(url);
+    // Route through server proxy to bypass browser-side CORS restrictions
+    const proxyUrl = `/api/update-status?webappUrl=${encodeURIComponent(targetUrl)}&orderNumber=${encodeURIComponent(orderNumber)}&status=${encodeURIComponent(status)}`;
+    console.log(`Updating status via server-side proxy: ${proxyUrl}`);
+    const response = await fetch(proxyUrl);
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`Proxy status update returned HTTP ${response.status}`);
     }
     const json = await response.json();
     return json && json.success === true;
