@@ -70,6 +70,11 @@ const PRECISE_ADDRESS_GEOLOCATIONS: Record<string, [number, number]> = {
   'המסגר 9, חולון': [32.008410, 34.803712],
   '9 hamasgar st, holon industrial zone': [32.008410, 34.803712],
   '9 hamasgar st, holon': [32.008410, 34.803712],
+
+  'חצוצרה 1, הוד השרון': [32.158140, 34.896440],
+  'חצוצרה 1 הוד השרון': [32.158140, 34.896440],
+  '1 chatzotzra, hod hasharon': [32.158140, 34.896440],
+  '1 chatzotzra st, hod hasharon': [32.158140, 34.896440],
 };
 
 // Precise Warehouse origin locations
@@ -164,6 +169,7 @@ function findPredefinedCoordinates(address: string): [number, number] | null {
   if (normalized.includes('המקצועות 12') || normalized.includes('hamikzoat 12') || normalized.includes('mikzoat 12')) return [31.899430, 34.969820];
   if (normalized.includes('הרצל 105') || normalized.includes('herzl 105')) return [31.964520, 34.801830];
   if (normalized.includes('המסגר 9') || normalized.includes('hamasgar 9') || normalized.includes('masgar 9')) return [32.008410, 34.803712];
+  if (normalized.includes('חצוצרה 1') || normalized.includes('chatzotzra 1')) return [32.158140, 34.896440];
 
   return null;
 }
@@ -234,6 +240,8 @@ interface OrderMapProps {
   onFilterCity?: (cityName: string | null) => void;
   selectedCity?: string | null;
   isLoading?: boolean;
+  onSelectOrderNumber?: (orderNumber: string | null) => void;
+  selectedOrderNumber?: string | null;
 }
 
 // Initialize coordinates cache from local storage
@@ -255,7 +263,7 @@ const getInitialCache = (): Record<string, [number, number]> => {
   return cache;
 };
 
-export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isLoading }: OrderMapProps) {
+export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isLoading, onSelectOrderNumber, selectedOrderNumber }: OrderMapProps) {
   const isHe = true; // Hardcode true for absolute Hebrew localization requirement
 
   const [geoCache, setGeoCache] = useState<Record<string, [number, number]>>(getInitialCache);
@@ -370,7 +378,6 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
           deliveryAddress: order.deliveryAddress,
           warehouse: order.warehouse,
           status: order.status,
-          totalAmount: order.totalAmount,
           items: order.items || [],
           itemsCount: order.items?.reduce((acc, item) => acc + (item.quantity || 0), 0) || 0,
           city: cityName,
@@ -487,60 +494,45 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
               icon={createOrderIcon(pt.status, idx)}
               eventHandlers={{
                 click: () => {
-                  onFilterCity?.(pt.city);
+                  // Click triggers state filter to isolate this order in the dashboard list
+                  onSelectOrderNumber?.(pt.orderNumber);
                 }
               }}
             >
               <Popup closeButton={false}>
-                <div className="p-2.5 font-sans text-right min-w-[220px]" dir="rtl">
+                <div className="p-3 font-sans text-right min-w-[220px]" dir="rtl">
                   {/* Header */}
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2 gap-2">
-                    <span className="font-extrabold text-slate-900 text-xs">
-                      הזמנה #{pt.orderNumber}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                      pt.status === 'ready' || pt.status === 'processing'
-                        ? 'bg-blue-50 text-blue-700 border border-blue-100'
-                        : pt.status === 'pending'
-                        ? 'bg-amber-50 text-amber-700 border border-amber-100'
-                        : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                    }`}>
-                      {pt.status === 'ready' ? 'מוכן להפצה' : pt.status === 'pending' ? 'בהמתנה' : pt.status === 'processing' ? 'בטיפול' : 'סופק'}
+                  <div className="border-b border-slate-100 pb-2 mb-2">
+                    <span className="font-extrabold text-slate-900 text-xs block">
+                      מספר הזמנה: #{pt.orderNumber}
                     </span>
                   </div>
 
                   {/* Body Info */}
-                  <div className="space-y-1.5 text-[11px] text-slate-600 font-medium">
-                    <div className="flex items-center gap-1.5 justify-start">
+                  <div className="space-y-2 text-[11px] text-slate-600 font-medium">
+                    <div className="flex items-center gap-2 justify-start">
                       <User className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                       <span>לקוח קצה: <strong className="text-slate-900 font-extrabold">{pt.customerName}</strong></span>
                     </div>
 
-                    <div className="flex items-start gap-1.5 justify-start">
+                    <div className="flex items-start gap-2 justify-start">
                       <MapPin className="h-3.5 w-3.5 text-rose-500 shrink-0 mt-0.5" />
                       <span>כתובת למשלוח: <strong className="text-slate-800 font-bold leading-normal">{pt.deliveryAddress}</strong></span>
                     </div>
 
-                    <div className="flex items-center gap-1.5 justify-start">
-                      <Warehouse className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                      <span>מחסן מקור: <strong className="text-slate-700">{pt.warehouse}</strong></span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 justify-start">
-                      <DollarSign className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                      <span>שווי משלוח: <strong className="text-emerald-600 font-bold">₪{pt.totalAmount?.toLocaleString()}</strong></span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 justify-start">
+                    <div className="flex items-center gap-2 justify-start">
                       <Package className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                      <span>תכולת משלוח: <strong className="text-slate-700">{pt.itemsCount} יחידות</strong></span>
+                      <span>כמות פריטים: <strong className="text-slate-900 font-black">{pt.itemsCount} יחידות</strong></span>
                     </div>
                   </div>
 
-                  {/* Filter click helper text */}
-                  <div className="mt-3 pt-2 border-t border-slate-100 text-center text-[9px] text-slate-400 font-black animate-pulse">
-                    לחץ על הסיכה לסינון הזמנות בעיר זו
-                  </div>
+                  {/* CTA button inside Popup */}
+                  <button
+                    onClick={() => onSelectOrderNumber?.(pt.orderNumber)}
+                    className="w-full mt-3 bg-blue-50 text-blue-600 border border-blue-100 rounded-lg py-1.5 px-2.5 text-[10px] font-black hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all text-center block shadow-sm cursor-pointer"
+                  >
+                    הצג והדגש בלוח הסידור ➔
+                  </button>
                 </div>
               </Popup>
             </Marker>

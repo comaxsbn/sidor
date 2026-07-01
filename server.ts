@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { GoogleGenAI } from "@google/genai";
 
 // Helper to extract Spreadsheet ID from a Google Sheets URL or ID
 function extractSpreadsheetId(url: string): string | null {
@@ -166,6 +167,64 @@ async function startServer() {
     } catch (error: any) {
       console.error("Server proxy error updating status:", error);
       res.status(500).json({ success: false, error: error.message || String(error) });
+    }
+  });
+
+  // Noa AI interactive assistant route - integrates Gemini 3.5 Flash lazily and securely
+  app.post("/api/chat", async (req, res) => {
+    const { message, orders } = req.body;
+    if (!message) {
+      return res.status(400).json({ success: false, error: "Missing message parameter" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined in the environment. Returning error status so frontend can handle with intelligent offline rule-engine fallback.");
+      return res.status(404).json({ success: false, error: "API Key missing" });
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const systemPrompt = `אתה "נועה - עוזרת לוגיסטית חכמה" ב-SabanOS.
+מגדר: נקבה.
+טון: מקצועי, שירותי, חם ומסביר פנים, אך ענייני ומקצועי ביותר.
+שפה: עברית (RTL). ענה תמיד בעברית בלבד!
+
+מדיניות אבטחה, פרטיות וסודיות חמורה:
+1. חל איסור מוחלט לחשוף את השווי הכספי הפרטני או הכולל של ההזמנות (השדות totalAmount או price) בתגובות צ'אט רגילות!
+אם המשתמש שואל לגבי שווי הזמנה, שווי כולל, סכומים או מחיר, הסבר לו בנימוס ובבהירות שנתונים פיננסיים אלו מוסתרים מטעמי אבטחה ופרטיות (ניתן להראות ₪***) וכי הם זמינים לצפייה מורשית אך ורק תחת דוח הבוקר המאובטח או תחת כרטיסיית המדדים הלוגיסטיים המורשים.
+2. אל תמציא פרטים או הזמנות שאינם קיימים במאגר. השתמש רק במידע האמיתי מתוך רשימת ההזמנות המצורפת.
+
+הנה נתוני ההזמנות המעודכנים בזמן אמת ב-SabanOS (בפורמט JSON):
+${JSON.stringify(orders || [])}
+
+הנחיות תגובה:
+- כאשר משתמש שואל על הזמנה ספציפית (לפי מספר הזמנה), חפש אותה ברשימה והצג את הסטטוס העדכני שלה (pending = ממתין, processing = בטיפול, delivered = סופק, cancelled = בוטל), כתובת לקוח קצה, מחסן המקור, והערות מיוחדות.
+- תמיד תציין את מספר ההזמנה במדויק בפורמט "#מספר" (למשל #6213944) כדי שהצ'אט יוכל לזהות אותו ולהציע כפתור הדגשה מהיר.
+- אם המשתמש שואל על "דוח בוקר" או "סיכום יומי", תמצת את הנתונים העיקריים (כמות משלוחים, חלוקה בין מחסנים ועיכובים) ללא שווי פיננסי.
+- אם המשתמש שואל לגבי חלוקת עומסים, סכם את מספר ההזמנות לפי מחסן (החרש או התלמיד) בצורה בהירה ונוחה לקריאה.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: message,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.7,
+        }
+      });
+
+      res.json({ success: true, text: response.text });
+    } catch (err: any) {
+      console.error("Gemini API server failure:", err);
+      res.status(500).json({ success: false, error: err.message || String(err) });
     }
   });
 

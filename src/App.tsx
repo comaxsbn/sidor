@@ -33,8 +33,13 @@ import {
   Shield,
   Users,
   Map,
-  MapPin
+  MapPin,
+  MessageSquare,
+  Sparkles
 } from 'lucide-react';
+
+import NoaChat from './components/NoaChat';
+import MorningReport from './components/MorningReport';
 
 const OrderMap = React.lazy(() => import('./components/OrderMap'));
 
@@ -42,7 +47,8 @@ export default function App() {
   // Config & State
   const [config, setConfig] = useState<AppConfig>(getStoredConfig);
   const [lang, setLang] = useState<Language>('he');
-  const [currentTab, setCurrentTab] = useState<'dispatch' | 'analytics' | 'map'>('dispatch');
+  const [currentTab, setCurrentTab] = useState<'dispatch' | 'analytics' | 'map' | 'noa-ai' | 'morning-report'>('dispatch');
+  const [selectedOrderNumber, setSelectedOrderNumber] = useState<string | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -77,6 +83,40 @@ export default function App() {
     }
     setIsLoading(false);
   };
+
+  // Global keyboard shortcuts for tab navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+         activeEl.tagName === 'TEXTAREA' ||
+         activeEl.tagName === 'SELECT' ||
+         activeEl.isContentEditable)
+      ) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+      if (key === 'd') {
+        setCurrentTab('dispatch');
+      } else if (key === 'a') {
+        setCurrentTab('analytics');
+      } else if (key === 'm') {
+        setCurrentTab('map');
+      } else if (key === 'n') {
+        setCurrentTab('noa-ai');
+      } else if (key === 'r') {
+        setCurrentTab('morning-report');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Pull refresh trigger
   const handleRefresh = async () => {
@@ -266,6 +306,35 @@ export default function App() {
           >
             <Map className="h-4.5 w-4.5 shrink-0" />
             <span>{isHe ? 'מפת סידור הפצה' : 'Logistics Map'}</span>
+          </button>
+
+          <button
+            id="sidebar-noa-btn"
+            onClick={() => setCurrentTab('noa-ai')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+              currentTab === 'noa-ai'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/10'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <MessageSquare className="h-4.5 w-4.5 shrink-0" />
+              <span>{isHe ? 'נועה Noa AI (צ׳אט)' : 'Noa AI Assistant'}</span>
+            </div>
+            <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+          </button>
+
+          <button
+            id="sidebar-morning-btn"
+            onClick={() => setCurrentTab('morning-report')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+              currentTab === 'morning-report'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/10'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Sparkles className="h-4.5 w-4.5 shrink-0 text-amber-400" />
+            <span>{isHe ? 'דוח בוקר לוגיסטי' : 'Logistics Briefing'}</span>
           </button>
         </nav>
 
@@ -507,6 +576,8 @@ export default function App() {
                 onDeleteOrder={handleDeleteOrder}
                 lang={lang}
                 isLoading={isLoading}
+                selectedOrderNumber={selectedOrderNumber}
+                onSelectOrderNumber={setSelectedOrderNumber}
               />
             </div>
           )}
@@ -559,9 +630,68 @@ export default function App() {
                     orders={orders}
                     lang={lang}
                     isLoading={isLoading}
+                    selectedOrderNumber={selectedOrderNumber}
+                    onSelectOrderNumber={(orderNum) => {
+                      setSelectedOrderNumber(orderNum);
+                      if (orderNum) {
+                        setCurrentTab('dispatch');
+                      }
+                    }}
                   />
                 </React.Suspense>
               </div>
+            </div>
+          )}
+
+          {currentTab === 'noa-ai' && (
+            <div className="space-y-4 animate-fade-in h-[calc(100vh-14rem)] md:h-[calc(100vh-12rem)] flex flex-col min-h-[400px]">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1 shrink-0">
+                <div>
+                  <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                    {isHe ? 'עוזרת לוגיסטית חכמה Noa AI' : 'Noa AI Logistics Assistant'}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    {isHe 
+                      ? 'צ׳אט אינטראקטיבי לברור סטטוסים, מיקומי הפצה, עיכובים ועומסי מחסנים בזמן אמת.' 
+                      : 'Interactive agent chat to query delivery logs, delay statuses, and live fleet details.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0">
+                <NoaChat
+                  orders={orders}
+                  lang={lang}
+                  onSelectOrderNumber={(orderNum) => {
+                    setSelectedOrderNumber(orderNum);
+                    if (orderNum) {
+                      setCurrentTab('dispatch');
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {currentTab === 'morning-report' && (
+            <div className="space-y-4 animate-fade-in">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+                <div>
+                  <h2 className="text-lg font-bold tracking-tight text-slate-900">
+                    {isHe ? 'דוח הפצה וריכוז בוקר' : 'Morning Logistics Report'}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    {isHe 
+                      ? 'הפקת דוח לוגיסטי מסוכם ומאושר המותאם לשיתוף מהיר והעתקה ישירה לקבוצות וואטסאפ של נהגים.' 
+                      : 'Generate consolidated and approved delivery reports formatted for easy driver dispatch via WhatsApp.'}
+                  </p>
+                </div>
+              </div>
+
+              <MorningReport
+                orders={orders}
+                lang={lang}
+              />
             </div>
           )}
         </div>
@@ -571,7 +701,7 @@ export default function App() {
           <button
             id="mob-tab-dispatch-btn"
             onClick={() => setCurrentTab('dispatch')}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[11px] font-bold transition-all ${
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[10px] font-bold transition-all ${
               currentTab === 'dispatch'
                 ? 'bg-slate-100 text-blue-600'
                 : 'text-slate-600'
@@ -582,9 +712,22 @@ export default function App() {
           </button>
 
           <button
+            id="mob-tab-noa-btn"
+            onClick={() => setCurrentTab('noa-ai')}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[10px] font-bold transition-all ${
+              currentTab === 'noa-ai'
+                ? 'bg-emerald-50 text-emerald-600'
+                : 'text-slate-600'
+            }`}
+          >
+            <MessageSquare className="h-4 w-4" />
+            <span>{isHe ? 'נועה AI' : 'Noa AI'}</span>
+          </button>
+
+          <button
             id="mob-tab-map-btn"
             onClick={() => setCurrentTab('map')}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[11px] font-bold transition-all ${
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[10px] font-bold transition-all ${
               currentTab === 'map'
                 ? 'bg-slate-100 text-blue-600'
                 : 'text-slate-600'
@@ -593,18 +736,31 @@ export default function App() {
             <Map className="h-4 w-4" />
             <span>{isHe ? 'מפת סידור' : 'Map'}</span>
           </button>
+
+          <button
+            id="mob-tab-morning-btn"
+            onClick={() => setCurrentTab('morning-report')}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[10px] font-bold transition-all ${
+              currentTab === 'morning-report'
+                ? 'bg-slate-100 text-blue-600'
+                : 'text-slate-600'
+            }`}
+          >
+            <Sparkles className="h-4 w-4 text-amber-500" />
+            <span>{isHe ? 'דוח בוקר' : 'Briefing'}</span>
+          </button>
           
           <button
             id="mob-tab-analytics-btn"
             onClick={() => setCurrentTab('analytics')}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[11px] font-bold transition-all ${
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[10px] font-bold transition-all ${
               currentTab === 'analytics'
                 ? 'bg-slate-100 text-blue-600'
                 : 'text-slate-600'
             }`}
           >
             <BarChart3 className="h-4 w-4" />
-            <span>{isHe ? 'ניתוח נתונים' : 'Analytics'}</span>
+            <span>{isHe ? 'ניתוח' : 'Analytics'}</span>
           </button>
         </div>
       </main>

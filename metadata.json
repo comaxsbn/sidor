@@ -1,6 +1,6 @@
 {
   "name": "SabanOS Enterprise Logistics",
-  "description": "Enterprise Logistics & Supply Chain dashboard for SabanOS, featuring dispatch logs, real-time metrics, analytics, and Looker Studio-style reports connected to Google Sheets.",
+  "description": "Enterprise Logistics dashboard for SabanOS featuring 'Noa AI' WhatsApp-styled assistant, automated Morning Briefing report, interactive Map, and Looker Studio-style reports.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

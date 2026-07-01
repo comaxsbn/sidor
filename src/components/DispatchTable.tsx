@@ -30,6 +30,8 @@ interface DispatchTableProps {
   onDeleteOrder?: (orderId: string) => void;
   lang: Language;
   isLoading: boolean;
+  selectedOrderNumber?: string | null;
+  onSelectOrderNumber?: (orderNumber: string | null) => void;
 }
 
 type SortField = 'timestamp' | 'totalAmount' | 'customerName' | 'orderNumber' | 'predictedDelay';
@@ -41,6 +43,8 @@ export default function DispatchTable({
   onDeleteOrder,
   lang,
   isLoading,
+  selectedOrderNumber,
+  onSelectOrderNumber,
 }: DispatchTableProps) {
   const isHe = lang === 'he';
 
@@ -272,6 +276,7 @@ export default function DispatchTable({
     setStartDate('');
     setEndDate('');
     setSelectedSku('all');
+    onSelectOrderNumber?.(null);
   };
 
   // Toggle row expansion
@@ -295,6 +300,11 @@ export default function DispatchTable({
   // Filter & Sort logic
   const filteredOrders = orders
     .filter(order => {
+      // If a specific order is selected from the map, show ONLY that order!
+      if (selectedOrderNumber) {
+        return order.orderNumber === selectedOrderNumber;
+      }
+
       const matchSearch = 
         order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
         order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -489,6 +499,19 @@ export default function DispatchTable({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {selectedOrderNumber && (
+              <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-1.5 rounded-lg animate-pulse">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                <span>{isHe ? 'סינון פעיל מהמפה:' : 'Map Filter Active:'} <strong>#{selectedOrderNumber}</strong></span>
+                <button
+                  onClick={() => onSelectOrderNumber?.(null)}
+                  className="bg-amber-100 hover:bg-amber-200 text-amber-950 px-2 py-0.5 rounded text-[10px] font-black cursor-pointer transition-colors"
+                >
+                  {isHe ? 'בטל סינון' : 'Clear'}
+                </button>
+              </div>
+            )}
+
             {/* Results count badge */}
             <div className="flex items-center gap-1.5 text-xs font-bold bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-slate-500">
               <span>{isHe ? 'הזמנות שנמצאו:' : 'Matches:'}</span>
@@ -498,7 +521,7 @@ export default function DispatchTable({
             </div>
 
             {/* Clear Filters Button */}
-            {(searchTerm || selectedWarehouse !== 'all' || selectedStatus !== 'all' || startDate || endDate || selectedSku !== 'all') && (
+            {(searchTerm || selectedWarehouse !== 'all' || selectedStatus !== 'all' || startDate || endDate || selectedSku !== 'all' || selectedOrderNumber) && (
               <button
                 id="dispatch-reset-filters-btn"
                 onClick={resetFilters}
@@ -828,8 +851,12 @@ export default function DispatchTable({
                       <tr 
                         id={`order-row-${order.orderNumber}`}
                         onClick={() => toggleRow(order.id)}
-                        className={`group cursor-pointer transition-colors hover:bg-slate-50/80 ${
-                          isExpanded ? 'bg-blue-50/10' : ''
+                        className={`group cursor-pointer transition-all hover:bg-slate-50/80 ${
+                          order.orderNumber === selectedOrderNumber
+                            ? 'bg-amber-50 hover:bg-amber-100/90 ring-2 ring-amber-400 ring-offset-2 font-semibold shadow-md'
+                            : isExpanded
+                            ? 'bg-blue-50/10'
+                            : ''
                         }`}
                       >
                         <td className="py-3.5 px-4 text-center">
