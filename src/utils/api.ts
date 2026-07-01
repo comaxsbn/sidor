@@ -411,24 +411,133 @@ export function parseItemsString(itemsStr: string, orderIdx: number): OrderItem[
   });
 }
 
+// Helper to extract Spreadsheet ID from a Google Sheets URL or ID
+export function extractSpreadsheetId(url: string): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (/^[a-zA-Z0-9-_]{40,}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return match ? match[1] : null;
+}
+
+// RFC 4180-compliant state machine CSV parser
+export function parseCSV(csvText: string): string[][] {
+  const result: string[][] = [];
+  let row: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < csvText.length; i++) {
+    const char = csvText[i];
+    const nextChar = csvText[i + 1];
+    
+    if (inQuotes) {
+      if (char === '"') {
+        if (nextChar === '"') {
+          current += '"';
+          i++; // skip next quote
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += char;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === ',') {
+        row.push(current);
+        current = '';
+      } else if (char === '\r' || char === '\n') {
+        row.push(current);
+        current = '';
+        if (row.length > 1 || row[0] !== '') {
+          result.push(row);
+        }
+        row = [];
+        if (char === '\r' && nextChar === '\n') {
+          i++; // skip \n
+        }
+      } else {
+        current += char;
+      }
+    }
+  }
+  if (row.length > 0 || current !== '') {
+    row.push(current);
+    result.push(row);
+  }
+  return result;
+}
+
 /**
  * Fetch live spreadsheet data via Google Apps Script WebApp
  */
 export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
   const targetUrl = webappUrl || 'https://script.google.com/macros/s/AKfycbwPfd6hqf62ZqlW-1wVSjNEQRXgLlEkGKEKB6xoHhsgE_w_4Rj8Pbht-6KQl3L3ZDHBTg/exec';
+  
+  let rawList: any[] = [];
   try {
-    const url = `/api/orders?webappUrl=${encodeURIComponent(targetUrl)}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    const spreadsheetId = extractSpreadsheetId(targetUrl);
+    if (spreadsheetId) {
+      console.log(`Detected Google Sheet ID in frontend: ${spreadsheetId}. Fetching direct CSV...`);
+      // Try fetching specifically the "לוג_הזמנות_מערכת" sheet first
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("לוג_הזמנות_מערכת")}`;
+      let response = await fetch(csvUrl);
+      if (!response.ok) {
+        // Fallback to first sheet
+        const fallbackCsvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv`;
+        response = await fetch(fallbackCsvUrl);
+      }
+      
+      if (response.ok) {
+        const csvText = await response.text();
+        const rows = parseCSV(csvText);
+        
+        // Filter out headers if present
+        let dataRows = rows;
+        if (rows.length > 0) {
+          const firstRowJoin = rows[0].join(" ").toLowerCase();
+          if (
+            firstRowJoin.includes("timestamp") || 
+            firstRowJoin.includes("order") || 
+            firstRowJoin.includes("customer") || 
+            firstRowJoin.includes("תאריך") || 
+            firstRowJoin.includes("הזמנה") ||
+            firstRowJoin.includes("חתימת")
+          ) {
+            dataRows = rows.slice(1);
+          }
+        }
+        rawList = dataRows;
+      } else {
+        throw new Error(`Google Sheet CSV export failed with status ${response.status}`);
+      }
+    } else {
+      // Direct client-to-WebApp fetch using action=getOrders parameter for Netlify compatibility
+      const directUrl = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getOrders`;
+      console.log(`Fetching from direct WebApp URL: ${directUrl}`);
+      const response = await fetch(directUrl);
+      if (!response.ok) {
+        throw new Error(`Google Sheets WebApp returned HTTP ${response.status}`);
+      }
+      const text = await response.text();
+      const trimmed = text.trim();
+      
+      if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
+        throw new Error(
+          "שגיאת הרשאות או הגדרה: הקישור שהוזן החזיר דף אינטרנט (HTML) במקום נתוני JSON. " +
+          "ודא שה-WebApp של גוגל מוגדר לגישת 'Anyone' (כל אחד) ופורסם מחדש."
+        );
+      }
+      
+      const json = JSON.parse(trimmed);
+      rawList = json && json.success && Array.isArray(json.data) 
+        ? json.data 
+        : (Array.isArray(json) ? json : (json.data || json.orders || []));
     }
-    
-    const json = await response.json();
-    
-    // Normalize response: check for .data or .orders, or if array is root
-    const rawList = json && json.success && Array.isArray(json.data) 
-      ? json.data 
-      : (Array.isArray(json) ? json : (json.data || json.orders || []));
       
     if (!Array.isArray(rawList)) {
       throw new Error('Response is not in array format');
@@ -530,7 +639,7 @@ export async function updateLiveOrderStatus(webappUrl: string | undefined, order
   if (!targetUrl) return false;
   
   try {
-    const url = `/api/update-status?webappUrl=${encodeURIComponent(targetUrl)}&orderNumber=${encodeURIComponent(orderNumber)}&status=${encodeURIComponent(status)}`;
+    const url = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=updateStatus&orderNumber=${encodeURIComponent(orderNumber)}&status=${encodeURIComponent(status)}`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);

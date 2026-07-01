@@ -36,8 +36,11 @@ function doGet(e) {
       }, callback);
     }
 
+    // Determine requested action
+    const action = e && e.parameter && e.parameter.action;
+
     // Handle query parameter actions (e.g. updating order status via GET for simplicity)
-    if (e && e.parameter && e.parameter.action === 'updateStatus') {
+    if (action === 'updateStatus') {
       const orderNumber = e.parameter.orderNumber;
       const newStatus = e.parameter.status;
       if (!orderNumber || !newStatus) {
@@ -45,6 +48,14 @@ function doGet(e) {
       }
       const success = updateSheetOrderStatus(orderNumber, newStatus);
       return createJsonResponse({ success: success, orderNumber: orderNumber, status: newStatus }, callback);
+    }
+
+    // Default to fetch orders if action is empty or is specifically 'getOrders'
+    if (action && action !== 'getOrders') {
+      return createJsonResponse({
+        success: false,
+        error: "Unknown action parameter: " + action
+      }, callback);
     }
     
     const range = sheet.getDataRange();

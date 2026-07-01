@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { Order, Language } from '../types';
-import { MapPin, Warehouse, Package, User, DollarSign } from 'lucide-react';
+import { MapPin, Warehouse, Package, User, DollarSign, Flame, Layers, Compass } from 'lucide-react';
 
 // Storage key for coordinates caching of live sheets addresses
 const LOCAL_STORAGE_GEO_CACHE_KEY = 'sabanos_geocoding_cache_v2';
@@ -175,7 +175,7 @@ function findPredefinedCoordinates(address: string): [number, number] | null {
 }
 
 // Controller component to dynamically adjust bounds to show all markers
-function MapBoundsController({ coordinates }: { coordinates: [number, number][] }) {
+function MapBoundsController({ coordinates, centerTrigger }: { coordinates: [number, number][]; centerTrigger?: number }) {
   const map = useMap();
 
   useEffect(() => {
@@ -196,7 +196,7 @@ function MapBoundsController({ coordinates }: { coordinates: [number, number][] 
         });
       }
     }
-  }, [coordinates, map]);
+  }, [coordinates, map, centerTrigger]);
 
   return null;
 }
@@ -234,6 +234,20 @@ const createWarehouseIcon = (name: string) => {
   });
 };
 
+const getStatusBadge = (status: string) => {
+  switch (status) {
+    case 'pending':
+      return { label: 'בהמתנה', classes: 'bg-amber-50 text-amber-700 border-amber-200' };
+    case 'delivered':
+      return { label: 'סופק בהצלחה', classes: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    case 'cancelled':
+      return { label: 'מבוטל', classes: 'bg-slate-50 text-slate-500 border-slate-200' };
+    case 'processing':
+    default:
+      return { label: 'מוכן להפצה', classes: 'bg-blue-50 text-blue-700 border-blue-200' };
+  }
+};
+
 interface OrderMapProps {
   orders: Order[];
   lang: Language;
@@ -267,6 +281,8 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
   const isHe = true; // Hardcode true for absolute Hebrew localization requirement
 
   const [geoCache, setGeoCache] = useState<Record<string, [number, number]>>(getInitialCache);
+  const [isDensityView, setIsDensityView] = useState(false);
+  const [centerTrigger, setCenterTrigger] = useState(0);
 
   // Background geocoding logic for any custom/live addresses not predefined
   useEffect(() => {
@@ -398,6 +414,52 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
     return list;
   }, [mapPoints]);
 
+  // Coordinates of the currently visible or selected order markers to zoom/center on
+  const activeCoordinates = useMemo(() => {
+    if (selectedOrderNumber) {
+      const selectedPoint = mapPoints.find(p => p.orderNumber === selectedOrderNumber);
+      if (selectedPoint) {
+        return [selectedPoint.position];
+      }
+    }
+    if (mapPoints.length > 0) {
+      return mapPoints.map(p => p.position);
+    }
+    return allGeolocations;
+  }, [mapPoints, selectedOrderNumber, allGeolocations]);
+
+  // Group active orders into neighborhood grids for density heatmap overlay
+  const densityClusters = useMemo(() => {
+    const groups: Record<string, {
+      lat: number;
+      lng: number;
+      ordersCount: number;
+      city: string;
+      orderNumbers: string[];
+      orders: typeof mapPoints;
+    }> = {};
+
+    mapPoints.forEach(pt => {
+      // Rounded coordinates form a local grid (approx. 1.1km cells for high precision neighborhood analysis)
+      const gridKey = `${pt.position[0].toFixed(2)}_${pt.position[1].toFixed(2)}`;
+      if (!groups[gridKey]) {
+        groups[gridKey] = {
+          lat: pt.position[0],
+          lng: pt.position[1],
+          ordersCount: 0,
+          city: pt.city,
+          orderNumbers: [],
+          orders: []
+        };
+      }
+      groups[gridKey].ordersCount += 1;
+      groups[gridKey].orderNumbers.push(pt.orderNumber);
+      groups[gridKey].orders.push(pt);
+    });
+
+    return Object.values(groups);
+  }, [mapPoints]);
+
   // Loading and empty states placed strictly after all React Hook declarations
   if (isLoading) {
     return (
@@ -434,17 +496,56 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
         <div className="flex items-center gap-2">
           <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
           <span className="font-bold text-slate-700">
-            מוצגות {mapPoints.length} הזמנות פעילות בפריסה ארצית מדויקת
+            {isDensityView 
+              ? `אנליזת עומסים: מוצגים ${densityClusters.length} אזורי הפצה שונים בפריסת נהגים` 
+              : `מוצגות ${mapPoints.length} הזמנות פעילות בפריסה ארצית מדויקת`
+            }
           </span>
         </div>
-        {selectedCity && (
+        
+        <div className="flex items-center gap-3">
+          {/* Density View Toggle */}
           <button
-            onClick={() => onFilterCity?.(null)}
-            className="text-[10px] font-black text-rose-500 hover:text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded px-2.5 py-1 transition-all"
+            onClick={() => setIsDensityView(!isDensityView)}
+            className={`flex items-center gap-1.5 text-[10px] font-black rounded-lg px-3 py-1.5 border transition-all cursor-pointer ${
+              isDensityView 
+                ? 'bg-amber-500 text-white border-amber-600 shadow-sm shadow-amber-500/10'
+                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+            }`}
+            title={isDensityView ? 'הצג סיכות רגילות' : 'הצג עומס הפצה מרוכז'}
           >
-            בטל סינון מפה ({selectedCity})
+            {isDensityView ? (
+              <>
+                <Layers className="h-3.5 w-3.5 text-white animate-spin" style={{ animationDuration: '3s' }} />
+                <span>סיכות רגילות</span>
+              </>
+            ) : (
+              <>
+                <Flame className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+                <span>תצוגת עומסי הפצה (מפת חום)</span>
+              </>
+            )}
           </button>
-        )}
+
+          {/* Center on Active Button */}
+          <button
+            onClick={() => setCenterTrigger(prev => prev + 1)}
+            className="flex items-center gap-1.5 text-[10px] font-black rounded-lg px-3 py-1.5 border bg-white text-slate-700 border-slate-200 hover:bg-slate-50 transition-all cursor-pointer shadow-xs"
+            title="מרכז תצוגה על משלוחים פעילים"
+          >
+            <Compass className="h-3.5 w-3.5 text-blue-600" />
+            <span>{selectedOrderNumber ? 'התמקדות במשלוח הנבחר' : 'מרכז תצוגת משלוחים'}</span>
+          </button>
+
+          {selectedCity && (
+            <button
+              onClick={() => onFilterCity?.(null)}
+              className="text-[10px] font-black text-rose-500 hover:text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-lg px-3 py-1.5 transition-all cursor-pointer"
+            >
+              בטל סינון ({selectedCity})
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Map Viewport Area */}
@@ -463,7 +564,7 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
           />
 
           {/* Dynamic Map bounds controller */}
-          <MapBoundsController coordinates={allGeolocations} />
+          <MapBoundsController coordinates={activeCoordinates} centerTrigger={centerTrigger} />
 
           {/* Render Warehouse Origins */}
           {Object.entries(WAREHOUSE_GEOLOCATIONS).map(([name, coords]) => (
@@ -486,8 +587,108 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
             </Marker>
           ))}
 
-          {/* Render Order Pinpoints */}
-          {mapPoints.map((pt, idx) => (
+          {/* Density Heatmap View Overlay */}
+          {isDensityView && densityClusters.map((cluster, idx) => {
+            const isHigh = cluster.ordersCount >= 3;
+            const isMed = cluster.ordersCount === 2;
+            const heatColor = isHigh ? '#ef4444' : isMed ? '#f59e0b' : '#3b82f6';
+            
+            return (
+              <React.Fragment key={`density-cluster-${idx}`}>
+                {/* Outer Ambient Glow Ring */}
+                <Circle
+                  center={[cluster.lat, cluster.lng]}
+                  radius={1200 + Math.min(cluster.ordersCount, 10) * 400}
+                  pathOptions={{
+                    color: heatColor,
+                    fillColor: heatColor,
+                    fillOpacity: 0.12,
+                    weight: 1,
+                    dashArray: '5, 8'
+                  }}
+                />
+                
+                {/* Inner Dense Core */}
+                <Circle
+                  center={[cluster.lat, cluster.lng]}
+                  radius={400 + Math.min(cluster.ordersCount, 10) * 150}
+                  pathOptions={{
+                    color: heatColor,
+                    fillColor: heatColor,
+                    fillOpacity: 0.38,
+                    weight: 1.5
+                  }}
+                >
+                  <Popup closeButton={false}>
+                    <div className="p-3 font-sans text-right min-w-[240px]" dir="rtl">
+                      {/* Title */}
+                      <div className="border-b border-slate-100 pb-2 mb-2">
+                        <span className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5 justify-start">
+                          <Flame className="h-4 w-4 text-amber-500 shrink-0" />
+                          <span>אזור צפיפות הפצה: {cluster.city}</span>
+                        </span>
+                      </div>
+
+                      {/* Stats */}
+                      <div className="space-y-2 text-[11px] text-slate-600 font-medium">
+                        <div className="flex justify-between items-center border-b border-slate-50 pb-1">
+                          <span>נפח הזמנות פעיל:</span>
+                          <span className="font-black text-slate-900 bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-100">
+                            {cluster.ordersCount} משלוחים
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center border-b border-slate-50 pb-1">
+                          <span>רמת עומס (שכונה):</span>
+                          <span className={`font-extrabold px-2 py-0.5 rounded ${
+                            isHigh 
+                              ? 'bg-rose-50 text-rose-700 border border-rose-100 animate-pulse' 
+                              : isMed 
+                              ? 'bg-amber-50 text-amber-700 border border-amber-100' 
+                              : 'bg-blue-50 text-blue-700 border border-blue-100'
+                          }`}>
+                            {isHigh ? 'צפיפות קריטית' : isMed ? 'עומס בינוני' : 'נמוך / מפוזר'}
+                          </span>
+                        </div>
+
+                        {/* Load balancing recommendation */}
+                        <div className="bg-slate-50 rounded p-2 text-[10px] text-slate-500 border border-slate-100">
+                          <strong className="text-slate-700 block mb-0.5">המלצת איזון עומסים:</strong>
+                          {isHigh ? (
+                            <span className="text-rose-600 font-bold leading-relaxed">מומלץ לפצל את הכתובות באזור זה בין 2 נהגי הפצה שונים כדי למנוע עיכובים במסירה.</span>
+                          ) : isMed ? (
+                            <span className="text-amber-600 font-bold leading-relaxed">ניתן לשלוח נהג בודד עם קו מרוכז במיוחד, תוך שימת לב לחלון זמני מסירה.</span>
+                          ) : (
+                            <span className="leading-relaxed">קבוצת הפצה מיטבית. נהג יחיד יבצע סבב מסירות מלא בזמן קצר ובצורה יעילה.</span>
+                          )}
+                        </div>
+
+                        {/* List of order IDs in cluster */}
+                        <div className="pt-1">
+                          <span className="text-[10px] text-slate-400 block mb-1">משלוחים הכלולים באשכול זה:</span>
+                          <div className="flex flex-wrap gap-1 max-h-[60px] overflow-y-auto">
+                            {cluster.orders.map(o => (
+                              <button
+                                key={o.id}
+                                onClick={() => onSelectOrderNumber?.(o.orderNumber)}
+                                className="text-[9px] font-mono font-bold bg-white hover:bg-blue-600 hover:text-white border border-slate-200 rounded px-1.5 py-0.5 transition-all cursor-pointer"
+                                title="הצג בלוח סידור"
+                              >
+                                #{o.orderNumber}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Popup>
+                </Circle>
+              </React.Fragment>
+            );
+          })}
+
+          {/* Render Order Pinpoints (Standard View) */}
+          {!isDensityView && mapPoints.map((pt, idx) => (
             <Marker
               key={`order-pin-${pt.id}-${idx}`}
               position={pt.position}
@@ -499,6 +700,28 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
                 }
               }}
             >
+              {/* Interactive Hover Tooltip */}
+              <Tooltip direction="top" offset={[0, -10]} opacity={0.98} sticky={true}>
+                <div className="font-sans text-right p-1.5 min-w-[160px]" dir="rtl">
+                  <div className="flex items-center justify-between gap-1.5 mb-1">
+                    <span className="font-extrabold text-slate-900 text-[10px]">הזמנה #{pt.orderNumber}</span>
+                    <span className={`text-[8px] px-1 py-0.2 rounded border font-black ${getStatusBadge(pt.status).classes}`}>
+                      {getStatusBadge(pt.status).label}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-slate-700 font-bold space-y-0.5">
+                    <div className="flex items-center gap-1">
+                      <User className="h-3 w-3 text-slate-400 shrink-0" />
+                      <span className="truncate max-w-[110px]">{pt.customerName}</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-slate-500">
+                      <MapPin className="h-3 w-3 text-rose-500 shrink-0" />
+                      <span className="truncate max-w-[110px]">{pt.deliveryAddress}</span>
+                    </div>
+                  </div>
+                </div>
+              </Tooltip>
+
               <Popup closeButton={false}>
                 <div className="p-3 font-sans text-right min-w-[220px]" dir="rtl">
                   {/* Header */}
@@ -551,22 +774,42 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
             <span className="h-2.5 w-2.5 rounded-full bg-orange-500"></span>
             <span className="font-bold text-slate-700">מחסן החרש</span>
           </div>
-          <div className="flex items-center gap-1.5 border-r border-slate-200 pr-3.5 mr-1">
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-500 border border-white shadow-sm"></span>
-            <span>מוכן להפצה / בטיפול</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-amber-500 border border-white shadow-sm"></span>
-            <span>בהמתנה</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 border border-white shadow-sm"></span>
-            <span>סופק</span>
-          </div>
+
+          {isDensityView ? (
+            <>
+              <div className="flex items-center gap-1.5 border-r border-slate-200 pr-3.5 mr-1 animate-fade-in">
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-500 border border-white shadow-sm"></span>
+                <span className="font-extrabold text-slate-700">צפיפות קריטית (3+ הזמנות בקילומטר)</span>
+              </div>
+              <div className="flex items-center gap-1.5 animate-fade-in">
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-500 border border-white shadow-sm"></span>
+                <span className="font-extrabold text-slate-700">עומס בינוני (2 הזמנות בקילומטר)</span>
+              </div>
+              <div className="flex items-center gap-1.5 animate-fade-in">
+                <span className="h-2.5 w-2.5 rounded-full bg-blue-500 border border-white shadow-sm"></span>
+                <span className="font-extrabold text-slate-700">נפח מפוזר (הזמנה בודדת בקילומטר)</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5 border-r border-slate-200 pr-3.5 mr-1">
+                <span className="h-2.5 w-2.5 rounded-full bg-blue-500 border border-white shadow-sm"></span>
+                <span>מוכן להפצה / בטיפול</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-500 border border-white shadow-sm"></span>
+                <span>בהמתנה</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 border border-white shadow-sm"></span>
+                <span>סופק</span>
+              </div>
+            </>
+          )}
         </div>
         <div>
           <span className="font-bold text-slate-400">
-            מפת הפצה לוגיסטית אינטראקטיבית SabanOS
+            {isDensityView ? 'מצב אנליזת עומסים ואיזון קווים' : 'מפת הפצה לוגיסטית אינטראקטיבית SabanOS'}
           </span>
         </div>
       </div>

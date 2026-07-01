@@ -722,6 +722,41 @@ export default function DispatchTable({
       {/* Main Table Card */}
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         
+        {/* Real-time search input above the dispatch table */}
+        <div className="border-b border-slate-100 bg-slate-50/40 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse"></span>
+            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              {isHe ? 'רשימת משלוחים וסטטוס קווים' : 'Active Dispatches & Route Status'}
+            </h4>
+          </div>
+          
+          <div className="relative w-full sm:w-80">
+            <Search className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 ${isHe ? 'right-3' : 'left-3'}`} />
+            <input
+              id="dispatch-table-quick-search"
+              type="text"
+              placeholder={isHe ? 'חפש לפי שם לקוח או מספר הזמנה...' : 'Search by name or order #...'}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={`w-full rounded-xl border border-slate-200 bg-white py-1.5 text-xs outline-none font-medium transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100/50 shadow-xs ${
+                isHe ? 'pl-8 pr-9 text-right' : 'pl-9 pr-8 text-left'
+              }`}
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className={`absolute top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer rounded-full hover:bg-slate-100 ${
+                  isHe ? 'left-2.5' : 'right-2.5'
+                }`}
+                title={isHe ? 'נקה חיפוש' : 'Clear search'}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+        
         {isLoading ? (
           <div className="overflow-x-auto animate-pulse">
             <table className="w-full text-left border-collapse">
