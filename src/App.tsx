@@ -39,7 +39,9 @@ import {
   MapPin,
   MessageSquare,
   Sparkles,
-  History
+  History,
+  Moon,
+  Sun
 } from 'lucide-react';
 
 import NoaChat from './components/NoaChat';
@@ -60,6 +62,20 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('sabanos_theme_v1');
+    return saved === 'dark';
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('sabanos_theme_v1', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('sabanos_theme_v1', 'light');
+    }
+  }, [darkMode]);
 
   const isHe = lang === 'he';
 
@@ -289,13 +305,47 @@ export default function App() {
     }).length;
   }, [orders]);
 
+  // Memoized daily trends for the last 7 days (including today)
+  const last7DaysTrends = useMemo(() => {
+    const totalOrdersTrend: number[] = [];
+    const pendingTrend: number[] = [];
+    
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(now.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      const dailyOrders = orders.filter(o => {
+        if (!o.timestamp) return false;
+        const orderDateStr = o.timestamp.split('T')[0];
+        return orderDateStr === dateStr;
+      });
+      
+      totalOrdersTrend.push(dailyOrders.length);
+      
+      const dailyActive = dailyOrders.filter(o => o.status === 'pending' || o.status === 'processing').length;
+      pendingTrend.push(dailyActive);
+    }
+    
+    return {
+      totalOrdersTrend,
+      pendingTrend
+    };
+  }, [orders]);
+
   // Memoized metric calculations
   const metrics = useMemo(() => computeMetrics(orders), [orders]);
 
   return (
     <div 
       dir={isHe ? 'rtl' : 'ltr'} 
-      className="flex h-screen w-full overflow-hidden bg-slate-50/80 font-sans text-slate-900 antialiased"
+      className={`flex h-screen w-full overflow-hidden font-sans transition-colors duration-300 ${
+        darkMode 
+          ? 'dark bg-slate-950 text-slate-100' 
+          : 'bg-slate-50/80 text-slate-900'
+      }`}
     >
       {/* 1. Elegant Dashboard Sidebar (Desktop Only) */}
       <aside className="w-64 bg-slate-900 flex flex-col text-slate-300 shrink-0 hidden md:flex">
@@ -457,17 +507,31 @@ export default function App() {
             <button
               id="header-lang-btn"
               onClick={() => setLang(isHe ? 'en' : 'he')}
-              className="flex items-center gap-1 h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all"
+              className="flex items-center gap-1 h-8 rounded-lg border border-slate-200 bg-white dark:bg-slate-800 dark:border-slate-700 px-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-all"
             >
               <Globe className="h-3.5 w-3.5" />
               <span>{isHe ? 'EN' : 'עב'}</span>
+            </button>
+
+            {/* Dark Mode Toggle */}
+            <button
+              id="header-theme-toggle"
+              onClick={() => setDarkMode(!darkMode)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white dark:bg-slate-800 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-all"
+              title={isHe ? 'שנה מצב תצוגה' : 'Toggle Theme'}
+            >
+              {darkMode ? (
+                <Sun className="h-4 w-4 text-amber-500" />
+              ) : (
+                <Moon className="h-4 w-4 text-slate-500" />
+              )}
             </button>
 
             {/* Settings */}
             <button
               id="header-settings-btn"
               onClick={() => setIsSettingsOpen(true)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white dark:bg-slate-800 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-all"
               title={isHe ? 'הגדרות סנכרון' : 'Sync Configurations'}
             >
               <Settings className="h-4 w-4 text-slate-500" />
@@ -503,6 +567,8 @@ export default function App() {
               icon={Truck}
               colorScheme="indigo"
               isLoading={isLoading}
+              sparklineData={last7DaysTrends.totalOrdersTrend}
+              darkMode={darkMode}
             />
             {/* Dynamic Customer Count with Month Filter */}
             {isLoading ? (
@@ -611,6 +677,8 @@ export default function App() {
               icon={Clock}
               colorScheme="amber"
               isLoading={isLoading}
+              sparklineData={last7DaysTrends.pendingTrend}
+              darkMode={darkMode}
             />
           </div>
 
@@ -697,6 +765,7 @@ export default function App() {
                         setCurrentTab('dispatch');
                       }
                     }}
+                    darkMode={darkMode}
                   />
                 </React.Suspense>
               </div>

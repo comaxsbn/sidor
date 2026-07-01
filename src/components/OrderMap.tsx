@@ -256,6 +256,7 @@ interface OrderMapProps {
   isLoading?: boolean;
   onSelectOrderNumber?: (orderNumber: string | null) => void;
   selectedOrderNumber?: string | null;
+  darkMode?: boolean;
 }
 
 // Initialize coordinates cache from local storage
@@ -277,7 +278,7 @@ const getInitialCache = (): Record<string, [number, number]> => {
   return cache;
 };
 
-export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isLoading, onSelectOrderNumber, selectedOrderNumber }: OrderMapProps) {
+export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isLoading, onSelectOrderNumber, selectedOrderNumber, darkMode }: OrderMapProps) {
   const isHe = true; // Hardcode true for absolute Hebrew localization requirement
 
   const [geoCache, setGeoCache] = useState<Record<string, [number, number]>>(getInitialCache);
@@ -560,7 +561,10 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
           {/* TileLayer utilizing standard OpenStreetMap tiles so Israel labels and streets render natively in Hebrew */}
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            url={darkMode 
+              ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+              : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            }
           />
 
           {/* Dynamic Map bounds controller */}

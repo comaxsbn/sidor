@@ -2,6 +2,8 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
+@variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Inter", "Segoe UI", Tahoma, sans-serif;
 }
@@ -10,6 +12,7 @@ body {
   font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif;
   background-color: #f8fafc;
   color: #1e293b;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Glassmorphism styling from Professional Polish Design */
@@ -40,4 +43,134 @@ body {
 
 .animate-fade-in {
   animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Global Dark Mode Style Overrides */
+.dark body {
+  background-color: #0b0f19;
+  color: #f1f5f9;
+}
+
+/* Card panels, headers, layouts */
+.dark .bg-white {
+  background-color: #111827 !important; /* bg-slate-900 */
+}
+.dark .bg-white\/95 {
+  background-color: rgba(17, 24, 39, 0.95) !important;
+}
+.dark .bg-slate-50\/80 {
+  background-color: rgba(11, 15, 25, 0.8) !important;
+}
+.dark .bg-slate-50 {
+  background-color: #0b0f19 !important; /* bg-slate-950 */
+}
+.dark .bg-slate-50\/40 {
+  background-color: rgba(15, 23, 42, 0.4) !important;
+}
+.dark .bg-slate-50\/50 {
+  background-color: rgba(15, 23, 42, 0.5) !important;
+}
+.dark .bg-slate-50\/70 {
+  background-color: rgba(15, 23, 42, 0.7) !important;
+}
+.dark .bg-slate-100 {
+  background-color: #1e293b !important; /* bg-slate-800 */
+}
+
+/* Glassmorphism cards */
+.dark .glass {
+  background: rgba(17, 24, 39, 0.75) !important;
+  border-color: rgba(30, 41, 59, 0.8) !important;
+}
+
+/* Borders */
+.dark .border-slate-200 {
+  border-color: #1e293b !important; /* border-slate-800 */
+}
+.dark .border-slate-200\/60 {
+  border-color: rgba(30, 41, 59, 0.6) !important;
+}
+.dark .border-slate-100 {
+  border-color: #1e293b !important;
+}
+.dark .border-slate-100\/80 {
+  border-color: rgba(30, 41, 59, 0.8) !important;
+}
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1e293b !important;
+}
+
+/* Texts */
+.dark .text-slate-900 {
+  color: #f8fafc !important;
+}
+.dark .text-slate-800 {
+  color: #f1f5f9 !important;
+}
+.dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+.dark .text-slate-400 {
+  color: #64748b !important;
+}
+
+/* Input, Select, Textarea */
+.dark input, .dark select, .dark textarea {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+  color: #f1f5f9 !important;
+}
+.dark input::placeholder, .dark textarea::placeholder {
+  color: #475569 !important;
+}
+.dark input:focus, .dark select:focus, .dark textarea:focus {
+  border-color: #3b82f6 !important;
+  background-color: #111827 !important;
+}
+
+/* Tables */
+.dark tr:hover {
+  background-color: rgba(30, 41, 59, 0.4) !important;
+}
+.dark th {
+  background-color: #0f172a !important;
+  color: #cbd5e1 !important;
+}
+
+/* Shadows */
+.dark .shadow-sm {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important;
+}
+.dark .shadow-md {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.2) !important;
+}
+.dark .shadow-slate-100\/80 {
+  box-shadow: none !important;
+}
+
+/* Leaflet custom dark theme fixes */
+.dark .leaflet-bar a, .dark .leaflet-control-zoom {
+  background-color: #111827 !important;
+  color: #f1f5f9 !important;
+  border-color: #1e293b !important;
+}
+.dark .leaflet-popup-content-wrapper {
+  background-color: #111827 !important;
+  color: #f1f5f9 !important;
+  border: 1px solid #1e293b !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4) !important;
+}
+.dark .leaflet-popup-tip {
+  background-color: #111827 !important;
+}
+.dark .leaflet-tooltip {
+  background-color: #111827 !important;
+  color: #f1f5f9 !important;
+  border: 1px solid #1e293b !important;
 }
