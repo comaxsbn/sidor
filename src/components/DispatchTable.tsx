@@ -23,12 +23,13 @@ import {
   Activity,
   AlertTriangle
 } from 'lucide-react';
-import { Order, OrderStatus, Language } from '../types';
+import { Order, OrderStatus, Language, AuditLogEntry } from '../types';
 import { translate, formatDate, MOCK_PRODUCTS } from '../utils/api';
 import { motion } from 'motion/react';
 
 interface DispatchTableProps {
   orders: Order[];
+  auditLogs?: AuditLogEntry[];
   onUpdateStatus: (orderId: string, status: OrderStatus) => void;
   onDeleteOrder?: (orderId: string) => void;
   lang: Language;
@@ -42,6 +43,7 @@ type SortOrder = 'asc' | 'desc';
 
 export default function DispatchTable({
   orders,
+  auditLogs,
   onUpdateStatus,
   onDeleteOrder,
   lang,
@@ -560,7 +562,8 @@ export default function DispatchTable({
   };
 
   // Render Status Badge
-  const renderStatusBadge = (status: OrderStatus) => {
+  const renderStatusBadge = (order: Order) => {
+    const status = order.status;
     const config = {
       pending: {
         bg: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -584,11 +587,36 @@ export default function DispatchTable({
       },
     }[status];
 
+    // Find last status change timestamp from auditLogs
+    const matchingLogs = auditLogs?.filter(log => log.orderId === order.id && log.newStatus === status) || [];
+    const lastLog = matchingLogs[0]; // auditLogs are already sorted descending in api.ts
+    const changeTimestamp = lastLog ? lastLog.timestamp : order.timestamp;
+    
+    // Format timestamp
+    const formattedTime = formatDate(changeTimestamp, lang);
+
     return (
-      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold border ${config.bg}`}>
-        <span className="h-1.5 w-1.5 rounded-full bg-current"></span>
-        {isHe ? config.textHe : config.textEn}
-      </span>
+      <div className="relative group/status inline-block cursor-help">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold border ${config.bg}`}>
+          <span className="h-1.5 w-1.5 rounded-full bg-current"></span>
+          {isHe ? config.textHe : config.textEn}
+        </span>
+        
+        {/* Status Change Tooltip */}
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-950 text-white rounded-lg px-3 py-2 shadow-lg opacity-0 group-hover/status:opacity-100 pointer-events-none transition-opacity duration-200 z-50 text-center text-[11px] whitespace-nowrap border border-slate-800">
+          <p className="font-bold text-indigo-400 mb-0.5">
+            {isHe ? 'עדכון סטטוס אחרון:' : 'Last Status Update:'}
+          </p>
+          <p className="font-mono font-medium text-slate-200">
+            {formattedTime}
+          </p>
+          {lastLog?.updatedBy && (
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              {isHe ? `עודכן על ידי: ${translate(lastLog.updatedBy, lang)}` : `Updated by: ${lastLog.updatedBy}`}
+            </p>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -882,7 +910,6 @@ export default function DispatchTable({
                   <th className="py-3.5 px-4">{isHe ? 'תאריך ושעה' : 'Timestamp'}</th>
                   <th className="py-3.5 px-4">{isHe ? 'לקוח קצה' : 'Customer Name'}</th>
                   <th className="py-3.5 px-4">{isHe ? 'מחסן' : 'Warehouse'}</th>
-                  <th className="py-3.5 px-4">{isHe ? 'סה"כ סכום' : 'Total Amount'}</th>
                   <th className="py-3.5 px-4">{isHe ? 'סטטוס' : 'Fulfillment Status'}</th>
                   <th className="py-3.5 px-4 w-12"></th>
                 </tr>
@@ -907,9 +934,6 @@ export default function DispatchTable({
                     </td>
                     <td className="py-4 px-4">
                       <div className="h-5 w-24 rounded bg-slate-100" />
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="h-4 w-16 rounded bg-slate-200" />
                     </td>
                     <td className="py-4 px-4">
                       <div className="h-6 w-16 rounded bg-slate-100" />
@@ -989,21 +1013,6 @@ export default function DispatchTable({
                   </th>
                   <th className="py-3 px-4">{isHe ? 'מחסן הפצה' : 'Warehouse'}</th>
                   <th className="py-3 px-4">{isHe ? 'כתובת אספקה' : 'Delivery Address'}</th>
-                  <th 
-                    className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition-colors"
-                    onClick={() => handleSort('totalAmount')}
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span className={sortField === 'totalAmount' ? 'text-indigo-600 font-bold' : ''}>
-                        {isHe ? 'סה"כ' : 'Total'}
-                      </span>
-                      {sortField === 'totalAmount' ? (
-                        sortOrder === 'asc' ? <ArrowUp className="h-3 w-3 text-indigo-600" /> : <ArrowDown className="h-3 w-3 text-indigo-600" />
-                      ) : (
-                        <ArrowUpDown className="h-3 w-3 text-slate-300" />
-                      )}
-                    </div>
-                  </th>
                   <th 
                     className="py-3 px-4 text-center cursor-pointer hover:text-slate-900 transition-colors"
                     onClick={() => handleSort('predictedDelay')}
@@ -1089,21 +1098,18 @@ export default function DispatchTable({
                             {translate(order.deliveryAddress, lang)}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-right font-bold text-slate-900">
-                          ₪{order.totalAmount.toLocaleString()}
-                        </td>
                         <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                           {renderDelayFlag(order.id)}
                         </td>
                         <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                          {renderStatusBadge(order.status)}
+                          {renderStatusBadge(order)}
                         </td>
                       </motion.tr>
 
                       {/* Expandable Details Row */}
                       {isExpanded && (
                         <tr className="bg-slate-50/40">
-                          <td colSpan={9} className="py-4 px-6 border-b border-slate-100">
+                          <td colSpan={8} className="py-4 px-6 border-b border-slate-100">
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                               
                               {/* Left Columns: Items Sub-table */}

@@ -705,6 +705,7 @@ export default function App() {
                   
                   <DispatchTable
                     orders={orders}
+                    auditLogs={auditLogs}
                     onUpdateStatus={handleUpdateStatus}
                     onDeleteOrder={handleDeleteOrder}
                     lang={lang}
