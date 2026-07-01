@@ -485,6 +485,14 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
     console.log(`Fetching orders via server-side proxy: ${proxyUrl}`);
     const response = await fetch(proxyUrl);
     if (!response.ok) {
+      try {
+        const errJson = await response.json();
+        if (errJson && errJson.error) {
+          throw new Error(errJson.error);
+        }
+      } catch (parseErr) {
+        // Fallback to default message below if parsing fails
+      }
       throw new Error(`Google Sheets Proxy returned HTTP ${response.status}`);
     }
     const json = await response.json();

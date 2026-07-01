@@ -7,6 +7,9 @@ import { GoogleGenAI } from "@google/genai";
 function extractSpreadsheetId(url: string): string | null {
   if (!url) return null;
   const trimmed = url.trim();
+  if (trimmed.includes("script.google.com") || trimmed.includes("macros/s/")) {
+    return null;
+  }
   if (/^[a-zA-Z0-9-_]{40,}$/.test(trimmed)) {
     return trimmed;
   }
@@ -111,15 +114,34 @@ async function startServer() {
           }
           
           return res.json({ success: true, data: dataRows });
+        } else {
+          console.warn(`Direct Google Sheet CSV export failed for both sheet names. Returning 403 authorization/sharing error.`);
+          return res.status(403).json({
+            success: false,
+            error: "גישה נדחתה: לא ניתן לייצא נתוני CSV מקובץ הגוגל שיטס. ודא שהקובץ מוגדר כציבורי לצפייה ('Anyone with the link can view') או שהזנת קישור WebApp תקין."
+          });
         }
       } catch (sheetError: any) {
-        console.warn("Direct Google Sheet CSV export failed, falling back to WebApp URL fetch...", sheetError);
+        console.error("Direct Google Sheet CSV export encountered an exception:", sheetError);
+        return res.status(500).json({
+          success: false,
+          error: `שגיאת סנכרון גוגל שיטס: ${sheetError.message || String(sheetError)}`
+        });
       }
     }
 
     // Standard Google Apps Script WebApp execution or other custom proxy
     try {
-      const response = await fetch(webappUrl);
+      let fetchUrl = webappUrl;
+      if (!fetchUrl.includes("action=")) {
+        fetchUrl += (fetchUrl.includes("?") ? "&" : "?") + "action=getOrders";
+      }
+      console.log(`Proxy fetching from WebApp URL: ${fetchUrl}`);
+      const response = await fetch(fetchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
       if (!response.ok) {
         throw new Error(`Google Sheets WebApp returned HTTP ${response.status}`);
       }
