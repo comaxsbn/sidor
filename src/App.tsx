@@ -551,7 +551,7 @@ export default function App() {
                   }`}
                 >
                   <Sparkles className="h-4.5 w-4.5 shrink-0 text-amber-400" />
-                  <span>{isHe ? 'דוח בוקר' : 'Logistics Briefing'}</span>
+                  <span>{isHe ? 'דוח בוקר לוגיסטי' : 'Logistics Briefing'}</span>
                 </button>
 
                 <button
@@ -566,7 +566,7 @@ export default function App() {
                   }`}
                 >
                   <History className="h-4.5 w-4.5 shrink-0" />
-                  <span>{isHe ? 'היסטוריית הזמנות' : 'Order History'}</span>
+                  <span>{isHe ? 'היסטוריית סטטוסים' : 'Order History'}</span>
                 </button>
               </nav>
 
@@ -711,7 +711,7 @@ export default function App() {
             }`}
           >
             <Sparkles className="h-4.5 w-4.5 shrink-0 text-amber-400" />
-            <span>{isHe ? 'דוח בוקר' : 'Logistics Briefing'}</span>
+            <span>{isHe ? 'דוח בוקר לוגיסטי' : 'Logistics Briefing'}</span>
           </button>
 
           <button
@@ -724,7 +724,7 @@ export default function App() {
             }`}
           >
             <History className="h-4.5 w-4.5 shrink-0" />
-            <span>{isHe ? 'היסטוריית הזמנות' : 'Order History'}</span>
+            <span>{isHe ? 'היסטוריית סטטוסים' : 'Order History'}</span>
           </button>
         </nav>
 
@@ -850,9 +850,9 @@ export default function App() {
           {/* Top KPI Metrics Row */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
-              title={isHe ? 'סה"כ הזמנות' : 'Total Logistics Orders'}
+              title={isHe ? 'סה"כ הזמנות הפצה' : 'Total Logistics Orders'}
               value={metrics.totalOrders}
-              subtitle={isHe ? 'כל ההובלות' : 'All shipment logs'}
+              subtitle={isHe ? 'כלל המשלוחים' : 'All shipment logs'}
               icon={Truck}
               colorScheme="indigo"
               isLoading={isLoading}
