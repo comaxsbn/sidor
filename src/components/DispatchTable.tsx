@@ -1376,7 +1376,7 @@ export default function DispatchTable({
                                           <div>
                                             <span className="text-slate-400 block">{isHe ? 'קצב עיבוד מחסן:' : 'Warehouse Rate:'}</span>
                                             <span className="font-bold text-slate-700 font-mono">
-                                              {order.warehouse.includes('התלמיד') ? '3.5h (כבד)' : '2.0h (מהיר)'}
+                                              {(order.warehouse || '').includes('התלמיד') ? '3.5h (כבד)' : '2.0h (מהיר)'}
                                             </span>
                                           </div>
                                           <div>
