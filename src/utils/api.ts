@@ -41,7 +41,7 @@ export function parseItemsString(itemsStr: string, orderIdx: number): OrderItem[
  * Fetch live spreadsheet data via Google Apps Script WebApp
  */
 export async function fetchLiveOrders(): Promise<Order[]> {
-  const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbztycOyLLcQe9cOAtrtsrEg8zCe7F39CXWgQ2wWoAPuGlhD6CNVDaWNzEiNM0vjzQALsw/exec";
+  const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwJGML9egm2-JKh1sh0UhLI-oCev1_Ek07eWJg77PqrKZLmeOYXBSJK_udoD3Tk5VM-CA/exec";
   
   try {
     const response = await fetch(`${WEBAPP_URL}?action=getOrders`);
