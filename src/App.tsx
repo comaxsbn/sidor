@@ -29,6 +29,7 @@ import AnalyticsView from './components/AnalyticsView';
 import SettingsModal from './components/SettingsModal';
 import OrderHistoryView from './components/OrderHistoryView';
 import DashboardSkeleton from './components/DashboardSkeleton';
+import ShortcutsModal from './components/ShortcutsModal';
 
 import { 
   TrendingUp, 
@@ -55,7 +56,8 @@ import {
   Moon,
   Sun,
   Menu,
-  X
+  X,
+  Keyboard
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'motion/react';
@@ -77,6 +79,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -193,6 +196,8 @@ export default function App() {
         setCurrentTab('morning-report');
       } else if (key === 'h') {
         setCurrentTab('order-history');
+      } else if (key === '?' || e.key === '?' || key === 'k') {
+        setIsShortcutsOpen(prev => !prev);
       }
     };
 
@@ -842,6 +847,16 @@ export default function App() {
               )}
             </button>
 
+            {/* Keyboard Shortcuts */}
+            <button
+              id="header-shortcuts-btn"
+              onClick={() => setIsShortcutsOpen(true)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white dark:bg-slate-800 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-all cursor-pointer shadow-xs"
+              title={isHe ? 'קיצורי מקלדת' : 'Keyboard Shortcuts'}
+            >
+              <Keyboard className="h-4 w-4 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200" />
+            </button>
+
             {/* Settings */}
             <button
               id="header-settings-btn"
@@ -1266,6 +1281,13 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         config={config}
         onSaveConfig={handleSaveConfig}
+        lang={lang}
+      />
+
+      {/* Keyboard Shortcuts Helper Modal */}
+      <ShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
         lang={lang}
       />
     </div>
