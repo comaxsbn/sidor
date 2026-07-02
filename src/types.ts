@@ -25,6 +25,7 @@ export interface Order {
   messageId?: string;
   latitude?: number;
   longitude?: number;
+  driverName?: string;
 }
 
 export interface MetricSummary {

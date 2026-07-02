@@ -21,7 +21,8 @@ import {
   Filter,
   X,
   Activity,
-  AlertTriangle
+  AlertTriangle,
+  Truck
 } from 'lucide-react';
 import { Order, OrderStatus, Language, AuditLogEntry } from '../types';
 import { translate, formatDate, MOCK_PRODUCTS } from '../utils/api';
@@ -32,6 +33,7 @@ interface DispatchTableProps {
   orders: Order[];
   auditLogs?: AuditLogEntry[];
   onUpdateStatus: (orderId: string, status: OrderStatus) => void;
+  onAssignDriver?: (orderId: string, driverName: string) => void;
   onDeleteOrder?: (orderId: string) => void;
   lang: Language;
   isLoading: boolean;
@@ -46,6 +48,7 @@ export default function DispatchTable({
   orders,
   auditLogs,
   onUpdateStatus,
+  onAssignDriver,
   onDeleteOrder,
   lang,
   isLoading,
@@ -645,22 +648,22 @@ export default function DispatchTable({
     const rawStatus = order.status || 'pending';
     const statusMap = {
       pending: {
-        bg: 'bg-amber-50/90 text-amber-800 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/50',
+        bg: 'bg-amber-50 text-amber-700 border-amber-300 ring-2 ring-amber-400/10 font-black',
         textHe: 'חדש',
         textEn: 'Pending',
       },
       processing: {
-        bg: 'bg-blue-50/90 text-blue-800 border-blue-200 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-900/50',
+        bg: 'bg-blue-50 text-blue-700 border-blue-300 ring-2 ring-blue-400/10 font-black',
         textHe: 'בטיפול',
-        textEn: 'Processing',
+        textEn: 'In-Transit',
       },
       delivered: {
-        bg: 'bg-emerald-50/90 text-emerald-800 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/50',
+        bg: 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-400/10 font-black',
         textHe: 'נמסר',
         textEn: 'Delivered',
       },
       cancelled: {
-        bg: 'bg-rose-50/90 text-rose-800 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/50',
+        bg: 'bg-rose-50 text-rose-700 border-rose-300 ring-2 ring-rose-400/10 font-black',
         textHe: 'בוטל',
         textEn: 'Cancelled',
       },
@@ -1187,6 +1190,7 @@ export default function DispatchTable({
                   </th>
                   <th className="py-3 px-4">{isHe ? 'מחסן הפצה' : 'Warehouse'}</th>
                   <th className="py-3 px-4">{isHe ? 'כתובת אספקה' : 'Delivery Address'}</th>
+                  <th className="py-3 px-4">{isHe ? 'נהג מוקצה' : 'Assigned Driver'}</th>
                   <th 
                     className="py-3 px-4 text-center cursor-pointer hover:text-slate-900 transition-colors"
                     onClick={() => handleSort('predictedDelay')}
@@ -1289,6 +1293,20 @@ export default function DispatchTable({
                             {translate(order.deliveryAddress, lang)}
                           </span>
                         </td>
+                        <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
+                          <select
+                            id={`row-driver-select-${order.id}`}
+                            value={order.driverName || ''}
+                            onChange={(e) => onAssignDriver?.(order.id, e.target.value)}
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer transition-all hover:bg-slate-50 shadow-xs"
+                          >
+                            <option value="">{isHe ? 'ללא נהג' : 'Unassigned'}</option>
+                            <option value="חכמת">🏗️ {isHe ? 'חכמת (מנוף)' : 'Hikmat'}</option>
+                            <option value="עלי">🚛 {isHe ? 'עלי (משאית)' : 'Ali'}</option>
+                            <option value="דניאל">🚐 {isHe ? 'דניאל (מסחרית)' : 'Daniel'}</option>
+                            <option value="יוסף">🚚 {isHe ? 'יוסף (מנוף)' : 'Yousef'}</option>
+                          </select>
+                        </td>
                         <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                           {renderDelayFlag(order.id)}
                         </td>
@@ -1300,7 +1318,7 @@ export default function DispatchTable({
                       {/* Expandable Details Row */}
                       {isExpanded && (
                         <tr className="bg-slate-50/40">
-                          <td colSpan={9} className="py-4 px-6 border-b border-slate-100">
+                          <td colSpan={10} className="py-4 px-6 border-b border-slate-100">
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                               
                               {/* Left Columns: Items Sub-table */}
@@ -1477,8 +1495,28 @@ export default function DispatchTable({
                                   )}
                                 </div>
 
+                                {/* Assign Driver Section */}
+                                <div className="space-y-2 pb-3 border-b border-slate-200">
+                                  <h5 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                    <Truck className="h-3.5 w-3.5 text-indigo-500" />
+                                    {isHe ? 'שיוך נהג למשלוח' : 'Assign Driver'}
+                                  </h5>
+                                  <select
+                                    id={`assign-driver-${order.id}`}
+                                    value={order.driverName || ''}
+                                    onChange={(e) => onAssignDriver?.(order.id, e.target.value)}
+                                    className="w-full rounded-lg border border-slate-200 bg-white py-2 px-3 text-xs font-semibold text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer transition-all hover:bg-slate-50 shadow-xs"
+                                  >
+                                    <option value="">{isHe ? 'ללא נהג (טרם שויך)' : 'Unassigned (Select driver...)'}</option>
+                                    <option value="חכמת">🏗️ {isHe ? 'חכמת (מנוף)' : 'Hikmat (Crane)'}</option>
+                                    <option value="עלי">🚛 {isHe ? 'עלי (משאית)' : 'Ali (Truck)'}</option>
+                                    <option value="דניאל">🚐 {isHe ? 'דניאל (מסחרית)' : 'Daniel (Van)'}</option>
+                                    <option value="יוסף">🚚 {isHe ? 'יוסף (מנוף)' : 'Yousef (Crane)'}</option>
+                                  </select>
+                                </div>
+
                                 {/* Status transition dispatch actions */}
-                                <div className="space-y-2">
+                                <div className="space-y-2 pt-1">
                                   <h5 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                                     {isHe ? 'עדכון סטטוס הפצה' : 'Update Dispatch Status'}
                                   </h5>

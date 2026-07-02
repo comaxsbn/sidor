@@ -279,6 +279,30 @@ export default function App() {
     }
   };
 
+  // Assign driver to order
+  const handleAssignDriver = async (orderId: string, driverName: string) => {
+    const targetOrder = orders.find(o => o.id === orderId);
+    if (!targetOrder) return;
+
+    // Optimistically update local state
+    const updatedOrder = { ...targetOrder, driverName };
+    const updated = orders.map(o => {
+      if (o.id === orderId) {
+        return updatedOrder;
+      }
+      return o;
+    });
+    setOrders(updated);
+    saveStoredOrders(updated);
+
+    // Save to Firestore
+    try {
+      await saveOrderToFirestore(updatedOrder);
+    } catch (fsErr) {
+      console.error('Failed to save order driver update to Firestore:', fsErr);
+    }
+  };
+
   // Delete an individual log locally
   const handleDeleteOrder = async (orderId: string) => {
     const targetOrder = orders.find(o => o.id === orderId);
@@ -997,6 +1021,7 @@ export default function App() {
                     orders={orders}
                     auditLogs={auditLogs}
                     onUpdateStatus={handleUpdateStatus}
+                    onAssignDriver={handleAssignDriver}
                     onDeleteOrder={handleDeleteOrder}
                     lang={lang}
                     isLoading={isLoading}
