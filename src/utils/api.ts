@@ -6,6 +6,47 @@ import { Order, OrderItem, OrderStatus, AppConfig } from '../types';
 export const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwJGML9egm2-JKh1sh0UhLI-oCev1_Ek07eWJg77PqrKZLmeOYXBSJK_udoD3Tk5VM-CA/exec";
 
 /**
+ * מילון תרגומים קבוע עבור רכיבי הממשק
+ */
+export const TRANSLATIONS_MAP: Record<string, string> = {
+  'מחסן החרש': 'HaCharash Warehouse',
+  'מחסן התלמיד': 'HaTalmid Warehouse',
+};
+
+/**
+ * פונקציית תרגום פשוטה
+ */
+export function translate(text: string, toLang: 'he' | 'en'): string {
+  if (toLang === 'he') return text;
+  return TRANSLATIONS_MAP[text] || text;
+}
+
+/**
+ * פורמטר תאריכים מותאם שפה
+ */
+export function formatDate(isoString: string, lang: 'he' | 'en'): string {
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return isoString;
+
+  if (lang === 'he') {
+    return date.toLocaleDateString('he-IL', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } else {
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+}
+
+/**
  * Utility for parsing items string: "[SKU] Name - Qty"
  */
 export function parseItemsString(itemsStr: string, orderIdx: number): OrderItem[] {
@@ -36,7 +77,7 @@ export function parseItemsString(itemsStr: string, orderIdx: number): OrderItem[
       id: `item-${orderIdx}-${itemIdx}-${sku}`,
       sku,
       name: name || 'פריט לוגיסטי',
-      price: 50, // Default fallback price
+      price: 50,
       quantity,
     };
   });
@@ -59,7 +100,6 @@ export async function fetchLiveOrders(): Promise<Order[]> {
       throw new Error(json.error || "Failed to fetch data");
     }
 
-    // Map the raw data from Google Sheets to the Order type
     return json.data.map((item: any, idx: number) => ({
       id: `live-${idx}-${item.orderNumber}`,
       orderNumber: String(item.orderNumber),
@@ -98,73 +138,31 @@ export async function updateLiveOrderStatus(orderNumber: string, status: OrderSt
   }
 }
 
+/**
+ * תאימות עבור פונקציות ניהול הגדרות היסטוריות ב-App.tsx
+ */
 export function getStoredConfig(): AppConfig {
   return {
     webappUrl: WEBAPP_URL,
     mode: 'live'
   };
 }
-// הוסף את ה-Map והפונקציות האלו לסוף הקובץ src/utils/api.ts
 
-export const TRANSLATIONS_MAP: Record<string, string> = {
-  'מחסן החרש': 'HaCharash Warehouse',
-  'מחסן התלמיד': 'HaTalmid Warehouse',
-  // ... הוסף כאן את כל המיפויים שהיו לך קודם
-};
-
-export function translate(text: string, toLang: 'he' | 'en'): string {
-  if (toLang === 'he') return text;
-  return TRANSLATIONS_MAP[text] || text;
+export function saveStoredConfig(config: AppConfig): void {
+  console.log("Forcing production stream config to live mode:", config);
 }
 
-export function formatDate(isoString: string, lang: 'he' | 'en'): string {
-  const date = new Date(isoString);
-  if (isNaN(date.getTime())) return isoString;
-
-  if (lang === 'he') {
-    return date.toLocaleDateString('he-IL', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } else {
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-  }
-}
-// הוסף את הייצואים האלו ל-api.ts כדי לספק תאימות לקוד הקיים ב-App.tsx:
-
+/**
+ * תאימות עבור פונקציות ניהול הזמנות היסטוריות ב-App.tsx
+ */
 export async function getStoredOrders(): Promise<Order[]> {
-  // במקום לשלוף מה-LocalStorage, אנחנו שולפים מהנתונים החיים
   return await fetchLiveOrders();
 }
 
 export function saveStoredOrders(orders: Order[]): void {
-  // כרגע ריק, ניתן להוסיף לוגיקת Cache מקומית אם תרצה
-  console.log("Saving orders to local cache...", orders);
+  // שמירה שקטה ללא השפעה על הזרם החי
 }
 
-export function computeMetrics(orders: Order[]): MetricSummary {
-  // מחשב מדדים בזמן אמת מתוך ההזמנות
-  const activeWarehouses = new Set(orders.map(o => o.warehouse)).size;
-  const pendingDeliveries = orders.filter(o => o.status === 'pending' || o.status === 'processing').length;
-  const deliveredOrders = orders.filter(o => o.status === 'delivered').length;
-  const totalRevenue = orders
-    .filter(o => o.status !== 'cancelled')
-    .reduce((acc, o) => acc + o.totalAmount, 0);
-
-  return {
-    totalOrders: orders.length,
-    totalRevenue,
-    activeWarehouses,
-    pendingDeliveries,
-    deliveredOrders,
-    topSku: { name: 'כללי', quantity: 0 },
-  };
-}
+/**
+ * תאימות עבור פונקציות ניהול לוגים היסטוריות ב-App.tsx
+ */
