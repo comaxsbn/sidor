@@ -26,6 +26,7 @@ import {
 import { Order, OrderStatus, Language, AuditLogEntry } from '../types';
 import { translate, formatDate, MOCK_PRODUCTS } from '../utils/api';
 import { motion } from 'motion/react';
+import { QuickFilter } from './QuickFilter';
 
 interface DispatchTableProps {
   orders: Order[];
@@ -949,55 +950,13 @@ export default function DispatchTable({
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         
         {/* Quick-filter status pill buttons */}
-        <div className="px-4 py-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center gap-3 justify-between">
-          <div className="flex flex-wrap items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
-              {isHe ? 'סינון מהיר:' : 'Quick Filter:'}
-            </span>
-            {[
-              { id: 'all', labelHe: 'הכל', labelEn: 'All', count: orders.length, color: 'blue' },
-              { id: 'pending', labelHe: 'חדש', labelEn: 'Pending', count: orders.filter(o => o.status === 'pending').length, color: 'amber' },
-              { id: 'processing', labelHe: 'בטיפול', labelEn: 'In-Transit', count: orders.filter(o => o.status === 'processing').length, color: 'blue' },
-              { id: 'delivered', labelHe: 'נמסר', labelEn: 'Delivered', count: orders.filter(o => o.status === 'delivered').length, color: 'emerald' }
-            ].map(pill => {
-              const isActive = selectedStatus === pill.id;
-              
-              let activeClass = '';
-              let inactiveClass = 'bg-white text-slate-600 border-slate-200/80 hover:bg-slate-50 hover:text-slate-900';
-              
-              if (pill.color === 'amber') {
-                activeClass = 'bg-amber-600 text-white border-amber-600 shadow-amber-100 shadow-xs font-black';
-              } else if (pill.color === 'emerald') {
-                activeClass = 'bg-emerald-600 text-white border-emerald-600 shadow-emerald-100 shadow-xs font-black';
-              } else {
-                activeClass = 'bg-blue-600 text-white border-blue-600 shadow-blue-100 shadow-xs font-black';
-              }
-              
-              return (
-                <button
-                  key={pill.id}
-                  type="button"
-                  onClick={() => setSelectedStatus(pill.id)}
-                  className={`rounded-full px-3.5 py-1 text-xs font-bold border flex items-center gap-2 transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state cursor-pointer ${
-                    isActive ? activeClass : inactiveClass
-                  }`}
-                >
-                  <span>{isHe ? pill.labelHe : pill.labelEn}</span>
-                  <span className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-bold font-mono transition-colors ${
-                    isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
-                  }`}>
-                    {pill.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="text-[10px] text-slate-400 font-bold hidden sm:block">
-            {isHe 
-              ? `מציג ${filteredOrders.length} מתוך ${orders.length} הזמנות` 
-              : `Showing ${filteredOrders.length} of ${orders.length} orders`}
-          </div>
-        </div>
+        <QuickFilter
+          selectedStatus={selectedStatus}
+          onSelectStatus={setSelectedStatus}
+          orders={orders}
+          isHe={isHe}
+          filteredCount={filteredOrders.length}
+        />
 
         {/* Real-time search input above the dispatch table OR Bulk Action Bar if items selected */}
         <div className="border-b border-slate-100 bg-slate-50/40 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 min-h-[56px]">
