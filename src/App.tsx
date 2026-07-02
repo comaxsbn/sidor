@@ -1024,6 +1024,7 @@ export default function App() {
                   <AnalyticsView
                     orders={orders}
                     lang={lang}
+                    auditLogs={auditLogs}
                   />
                 </div>
               )}
