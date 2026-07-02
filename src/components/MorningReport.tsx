@@ -8,10 +8,11 @@ const DRIVERS = [
   { name: 'עלי', type: 'משאית', icon: '🚛' },
 ];
 
-const getShortWarehouseName = (wh: string) => {
-  if (wh.includes('החרש')) return 'החרש';
-  if (wh.includes('התלמיד')) return 'התלמיד';
-  return wh.replace('מחסן', '').trim();
+const getShortWarehouseName = (wh: string | undefined | null) => {
+  const name = wh || '';
+  if (name.includes('החרש')) return 'החרש';
+  if (name.includes('התלמיד')) return 'התלמיד';
+  return name.replace('מחסן', '').trim() || 'כללי';
 };
 
 const getDriverForOrder = (order: Order, index: number) => {
@@ -59,12 +60,14 @@ export default function MorningReport({ orders, lang }: MorningReportProps) {
     const cancelled = orders.filter(o => o.status === 'cancelled').length;
 
     const charashCount = orders.filter(o => {
-      const isCharash = o.warehouse.includes('החרש') || o.warehouse.toLowerCase().includes('charash');
+      const wh = o.warehouse || '';
+      const isCharash = wh.includes('החרש') || wh.toLowerCase().includes('charash');
       return isCharash && o.status !== 'cancelled' && o.status !== 'delivered';
     }).length;
 
     const talmidCount = orders.filter(o => {
-      const isTalmid = o.warehouse.includes('התלמיד') || o.warehouse.toLowerCase().includes('talmid');
+      const wh = o.warehouse || '';
+      const isTalmid = wh.includes('התלמיד') || wh.toLowerCase().includes('talmid');
       return isTalmid && o.status !== 'cancelled' && o.status !== 'delivered';
     }).length;
 

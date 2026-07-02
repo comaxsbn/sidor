@@ -214,8 +214,14 @@ export default function NoaChat({ orders, lang, onSelectOrderNumber }: NoaChatPr
 
     // 4. Warehouse loading distributions
     if (text.includes('מחסן') || text.includes('מלאי') || text.includes('warehouse') || text.includes('stock')) {
-      const charashCount = orders.filter(o => o.warehouse.includes('החרש') && o.status !== 'cancelled').length;
-      const talmidCount = orders.filter(o => o.warehouse.includes('התלמיד') && o.status !== 'cancelled').length;
+      const charashCount = orders.filter(o => {
+        const wh = o.warehouse || '';
+        return wh.includes('החרש') && o.status !== 'cancelled';
+      }).length;
+      const talmidCount = orders.filter(o => {
+        const wh = o.warehouse || '';
+        return wh.includes('התלמיד') && o.status !== 'cancelled';
+      }).length;
       return `🏭 *עומס המשלוחים הנוכחי במחסני המקור (הזמנות פעילות):*\n\n` +
              `1️⃣ *מחסן החרש:* מנהל כרגע *${charashCount}* משלוחי הפצה פעילים.\n` +
              `2️⃣ *מחסן התלמיד:* מנהל כרגע *${talmidCount}* משלוחי הפצה פעילים.\n\n` +

@@ -173,7 +173,7 @@ export default function AnalyticsView({ orders, lang }: AnalyticsViewProps) {
       if (filterCustomer && o.customerName !== filterCustomer) return false;
       
       if (filterWarehouse) {
-        let whName = o.warehouse;
+        let whName = o.warehouse || '';
         if (whName.includes('החרש') || whName.toLowerCase().includes('charash')) whName = 'מחסן החרש';
         if (whName.includes('התלמיד') || whName.toLowerCase().includes('talmid')) whName = 'מחסן התלמיד';
         if (whName !== filterWarehouse) return false;
@@ -260,7 +260,7 @@ export default function AnalyticsView({ orders, lang }: AnalyticsViewProps) {
     };
 
     filteredOrders.forEach(o => {
-      let whName = o.warehouse;
+      let whName = o.warehouse || '';
       if (whName.includes('החרש') || whName.toLowerCase().includes('charash')) whName = 'מחסן החרש';
       else if (whName.includes('התלמיד') || whName.toLowerCase().includes('talmid')) whName = 'מחסן התלמיד';
       else return;
@@ -345,7 +345,8 @@ export default function AnalyticsView({ orders, lang }: AnalyticsViewProps) {
 
     filteredOrders.forEach(o => {
       const city = getCityFromAddress(o.deliveryAddress);
-      const whName = o.warehouse.includes('התלמיד') || o.warehouse.toLowerCase().includes('talmid') ? 'מחסן התלמיד' : 'מחסן החרש';
+      const wh = o.warehouse || '';
+      const whName = wh.includes('התלמיד') || wh.toLowerCase().includes('talmid') ? 'מחסן התלמיד' : 'מחסן החרש';
       
       if (!counts[city]) {
         counts[city] = { count: 0, units: 0, avgLeadTimeHours: 0, peakWarehouse: '' };
@@ -472,7 +473,7 @@ export default function AnalyticsView({ orders, lang }: AnalyticsViewProps) {
       nonCancelledOrders.forEach(o => {
         const dStr = new Date(o.timestamp).toISOString().split('T')[0];
         if (datesMap[dStr]) {
-          let whName = o.warehouse;
+          let whName = o.warehouse || '';
           if (whName.includes('החרש') || whName.toLowerCase().includes('charash')) whName = 'מחסן החרש';
           else if (whName.includes('התלמיד') || whName.toLowerCase().includes('talmid')) whName = 'מחסן התלמיד';
           

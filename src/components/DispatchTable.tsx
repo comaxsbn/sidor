@@ -206,7 +206,7 @@ export default function DispatchTable({
   }, [orders]);
 
   // Get unique warehouses for filters
-  const uniqueWarehouses = ['all', ...Array.from(new Set(orders.map(o => o.warehouse)))];
+  const uniqueWarehouses = ['all', ...Array.from(new Set(orders.map(o => o.warehouse).filter(Boolean)))];
 
   // Helper to extract city from address
   const getCityFromAddress = (address: string): string => {
@@ -430,12 +430,16 @@ export default function DispatchTable({
         return order.orderNumber === selectedOrderNumber;
       }
 
+      const orderNumber = order.orderNumber || '';
+      const customerName = order.customerName || '';
+      const deliveryAddress = order.deliveryAddress || '';
+
       const matchSearch = 
-        order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        translate(order.customerName, 'en').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.deliveryAddress.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        translate(order.deliveryAddress, 'en').toLowerCase().includes(searchTerm.toLowerCase());
+        orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        translate(customerName, 'en').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        deliveryAddress.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        translate(deliveryAddress, 'en').toLowerCase().includes(searchTerm.toLowerCase());
         
       const matchWarehouse = selectedWarehouse === 'all' || order.warehouse === selectedWarehouse;
       const matchStatus = selectedStatus === 'all' || order.status === selectedStatus;

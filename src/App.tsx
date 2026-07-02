@@ -369,7 +369,8 @@ export default function App() {
   // Active undelivered orders for HaCharash Warehouse
   const charashActiveCount = useMemo(() => {
     return orders.filter(o => {
-      const isCharash = o.warehouse.includes('החרש') || o.warehouse.toLowerCase().includes('charash');
+      const wh = o.warehouse || '';
+      const isCharash = wh.includes('החרש') || wh.toLowerCase().includes('charash');
       const isNotDelivered = o.status !== 'delivered' && o.status !== 'cancelled';
       return isCharash && isNotDelivered;
     }).length;
@@ -378,7 +379,8 @@ export default function App() {
   // Active undelivered orders for HaTalmid Warehouse
   const talmidActiveCount = useMemo(() => {
     return orders.filter(o => {
-      const isTalmid = o.warehouse.includes('התלמיד') || o.warehouse.toLowerCase().includes('talmid');
+      const wh = o.warehouse || '';
+      const isTalmid = wh.includes('התלמיד') || wh.toLowerCase().includes('talmid');
       const isNotDelivered = o.status !== 'delivered' && o.status !== 'cancelled';
       return isTalmid && isNotDelivered;
     }).length;
