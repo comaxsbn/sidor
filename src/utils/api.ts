@@ -1,5 +1,5 @@
 export async function fetchLiveOrders(): Promise<Order[]> {
-  const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwFLs7Y9pH_3YLxZwl4ZXu5LYRQDSCuTYlnaJ2lUaM5aUWFqfn4_NEDdpJxA09fpNTm3A/exec";
+  const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzePA9xrSAV8gPu_rAKHrnhZ3qoXCq4MaFIA9BO1OP5RGgLw206zBQpHFMfq9YmnzqakA/exec";
   
   // שימוש ב-Proxy שהגדרנו ב-netlify.toml כדי לעקוף חסימות דפדפן
   const response = await fetch(`/api/orders?webappUrl=${encodeURIComponent(WEBAPP_URL)}&action=getOrders`);
