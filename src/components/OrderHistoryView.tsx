@@ -66,9 +66,9 @@ export default function OrderHistoryView({ auditLogs, orders, lang, onSelectOrde
   const filteredLogs = useMemo(() => {
     return auditLogs.filter(log => {
       const matchSearch = 
-        log.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.updatedBy.toLowerCase().includes(searchTerm.toLowerCase());
+        (log.orderNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.customerName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.updatedBy || '').toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchStatus = statusFilter === 'all' || log.newStatus === statusFilter;
       const matchOperator = operatorFilter === 'all' || log.updatedBy === operatorFilter;

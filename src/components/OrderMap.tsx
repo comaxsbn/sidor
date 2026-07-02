@@ -361,8 +361,8 @@ export default function OrderMap({ orders, lang, onFilterCity, selectedCity, isL
     return orders
       .filter(o => o.status !== 'cancelled')
       .map((order, idx) => {
-        const cityName = getCityFromAddress(order.deliveryAddress);
-        const normAddr = order.deliveryAddress.toLowerCase().trim();
+        const cityName = getCityFromAddress(order.deliveryAddress || '');
+        const normAddr = (order.deliveryAddress || '').toLowerCase().trim();
 
         // 1. Try order's own latitude and longitude from source
         // 2. Try predefined coordinates
