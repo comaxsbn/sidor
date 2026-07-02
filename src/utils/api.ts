@@ -474,6 +474,20 @@ export function parseCSV(csvText: string): string[][] {
   return result;
 }
 
+// Helper to safely convert an input to ISO Date string, falling back to current date on error
+const safeToIsoString = (val: any): string => {
+  if (!val) return new Date().toISOString();
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) {
+      return new Date().toISOString();
+    }
+    return d.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+};
+
 /**
  * Fetch live spreadsheet data via Google Apps Script WebApp
  */
@@ -514,7 +528,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
     const parsedOrders = rawList.map((row: any, idx: number) => {
       if (Array.isArray(row)) {
         // Fallback for raw double arrays [timestamp, orderNumber, customerName, warehouse, deliveryAddress, itemsRaw, statusRaw, modelUsed, tokens, messageId]
-        const timestamp = row[0] ? new Date(row[0]).toISOString() : new Date().toISOString();
+        const timestamp = safeToIsoString(row[0]);
         const orderNumber = String(row[1] || `SBN-${10000 + idx}`).trim();
         const customerName = String(row[2] || 'לקוח לא ידוע').trim();
         const warehouse = String(row[3] || 'מחסן החרש').trim();
@@ -554,7 +568,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
       } else {
         // Standard typed object returned from Code.js WebApp
         const orderNumber = String(row.orderNumber || row.orderNo || `SBN-${10000 + idx}`).trim();
-        const timestamp = row.timestamp ? new Date(row.timestamp).toISOString() : new Date().toISOString();
+        const timestamp = safeToIsoString(row.timestamp);
         const customerName = String(row.customerName || row.customer || 'לקוח לא ידוע').trim();
         const warehouse = String(row.warehouse || 'מחסן החרש').trim();
         const deliveryAddress = String(row.deliveryAddress || row.address || '').trim();

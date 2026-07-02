@@ -33,6 +33,18 @@ import { Order, OrderItem, Language } from '../types';
 import { translate, formatDate } from '../utils/api';
 import OrderMap from './OrderMap';
 
+// Helper to safely get the YYYY-MM-DD string from any timestamp to avoid RangeError
+const safeGetDateString = (timestamp: any): string => {
+  if (!timestamp) return '';
+  try {
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return '';
+    return d.toISOString().split('T')[0];
+  } catch {
+    return '';
+  }
+};
+
 interface AnalyticsViewProps {
   orders: Order[];
   lang: Language;
@@ -182,7 +194,7 @@ export default function AnalyticsView({ orders, lang }: AnalyticsViewProps) {
       if (filterSku && !o.items.some(item => item.sku === filterSku)) return false;
       
       if (filterDate) {
-        const orderDateStr = new Date(o.timestamp).toISOString().split('T')[0];
+        const orderDateStr = safeGetDateString(o.timestamp);
         if (orderDateStr !== filterDate) return false;
       }
       
@@ -454,7 +466,7 @@ export default function AnalyticsView({ orders, lang }: AnalyticsViewProps) {
     if (masterChartTab === 'daily') {
       const datesMap: Record<string, { dateStr: string; label: string; 'מחסן התלמיד': number; 'מחסן החרש': number; total: number }> = {};
       
-      const activeDates = (Array.from(new Set(nonCancelledOrders.map(o => new Date(o.timestamp).toISOString().split('T')[0]))) as string[])
+      const activeDates = (Array.from(new Set(nonCancelledOrders.map(o => safeGetDateString(o.timestamp)).filter(Boolean))) as string[])
         .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
         .slice(-7);
 
@@ -471,7 +483,7 @@ export default function AnalyticsView({ orders, lang }: AnalyticsViewProps) {
       });
 
       nonCancelledOrders.forEach(o => {
-        const dStr = new Date(o.timestamp).toISOString().split('T')[0];
+        const dStr = safeGetDateString(o.timestamp);
         if (datesMap[dStr]) {
           let whName = o.warehouse || '';
           if (whName.includes('החרש') || whName.toLowerCase().includes('charash')) whName = 'מחסן החרש';

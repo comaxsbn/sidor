@@ -24,6 +24,18 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(defa
 const ORDERS_COLLECTION = 'orders';
 const AUDIT_LOGS_COLLECTION = 'auditLogs';
 
+// Helper to safely get timestamp value for sorting, preventing RangeError or NaN crashes
+const safeGetTime = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  try {
+    const d = new Date(timestamp);
+    const time = d.getTime();
+    return isNaN(time) ? 0 : time;
+  } catch {
+    return 0;
+  }
+};
+
 /**
  * Fetch all orders from Firebase Firestore, sorted by timestamp descending
  */
@@ -38,8 +50,8 @@ export async function getOrdersFromFirestore(): Promise<Order[]> {
       ordersList.push({ id: docSnap.id, ...docSnap.data() } as Order);
     });
     
-    // Sort descending by timestamp
-    return ordersList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // Sort descending by timestamp safely
+    return ordersList.sort((a, b) => safeGetTime(b.timestamp) - safeGetTime(a.timestamp));
   } catch (error) {
     console.error('Error fetching orders from Firestore:', error);
     throw error;
@@ -106,8 +118,8 @@ export async function getAuditLogsFromFirestore(): Promise<AuditLogEntry[]> {
       logsList.push({ id: docSnap.id, ...docSnap.data() } as AuditLogEntry);
     });
     
-    // Sort descending by timestamp
-    return logsList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // Sort descending by timestamp safely
+    return logsList.sort((a, b) => safeGetTime(b.timestamp) - safeGetTime(a.timestamp));
   } catch (error) {
     console.error('Error fetching audit logs from Firestore:', error);
     throw error;
@@ -160,8 +172,8 @@ export function subscribeToOrders(
     snapshot.forEach((docSnap) => {
       ordersList.push({ id: docSnap.id, ...docSnap.data() } as Order);
     });
-    // Sort descending by timestamp
-    const sorted = ordersList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // Sort descending by timestamp safely
+    const sorted = ordersList.sort((a, b) => safeGetTime(b.timestamp) - safeGetTime(a.timestamp));
     onUpdate(sorted);
   }, onError);
 }
@@ -180,8 +192,8 @@ export function subscribeToAuditLogs(
     snapshot.forEach((docSnap) => {
       logsList.push({ id: docSnap.id, ...docSnap.data() } as AuditLogEntry);
     });
-    // Sort descending by timestamp
-    const sorted = logsList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // Sort descending by timestamp safely
+    const sorted = logsList.sort((a, b) => safeGetTime(b.timestamp) - safeGetTime(a.timestamp));
     onUpdate(sorted);
   }, onError);
 }
