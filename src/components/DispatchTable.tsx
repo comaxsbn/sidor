@@ -196,7 +196,7 @@ export default function DispatchTable({
     });
     // Add any from current orders to be fully dynamic
     orders.forEach(o => {
-      o.items.forEach(item => {
+      (o.items || []).forEach(item => {
         if (item.sku && !map.has(item.sku)) {
           map.set(item.sku, item.name);
         }
@@ -461,7 +461,7 @@ export default function DispatchTable({
       // SKU Specific Match
       let matchSku = true;
       if (selectedSku !== 'all') {
-        matchSku = order.items.some(item => item.sku === selectedSku);
+        matchSku = (order.items || []).some(item => item.sku === selectedSku);
       }
 
       return matchSearch && matchWarehouse && matchStatus && matchDate && matchSku;
@@ -1229,7 +1229,7 @@ export default function DispatchTable({
                                     {isHe ? 'פירוט פריטים במשלוח' : 'Item Shipment Manifest'}
                                   </h5>
                                   <span className="text-xs font-semibold text-slate-500">
-                                    {order.items.length} {isHe ? 'מוצרים שונים' : 'unique SKUs'}
+                                    {order.items?.length || 0} {isHe ? 'מוצרים שונים' : 'unique SKUs'}
                                   </span>
                                 </div>
                                 
@@ -1243,7 +1243,7 @@ export default function DispatchTable({
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-slate-700">
-                                      {order.items.map((item) => (
+                                      {(order.items || []).map((item) => (
                                         <tr key={item.id} className="hover:bg-slate-50/50">
                                           <td className="py-2 px-3 font-mono font-semibold text-slate-500">{item.sku}</td>
                                           <td className="py-2 px-3 font-semibold text-slate-800">{translate(item.name, lang)}</td>
@@ -1532,7 +1532,7 @@ export default function DispatchTable({
               <div>
                 <span className="text-slate-400 font-medium block">{isHe ? 'פריטים בסבב:' : 'Items:'}</span>
                 <div className="max-h-20 overflow-y-auto space-y-0.5 text-[11px] text-slate-300 pr-1">
-                  {order.items.map((item, i) => (
+                  {(order.items || []).map((item, i) => (
                     <div key={i} className="flex justify-between">
                       <span>• {item.name}</span>
                       <span className="font-mono text-slate-400">x{item.quantity}</span>

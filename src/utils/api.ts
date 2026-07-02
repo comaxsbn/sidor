@@ -637,7 +637,7 @@ export function computeMetrics(orders: Order[]): MetricSummary {
   const skuCounts: Record<string, number> = {};
   orders.forEach(o => {
     if (o.status !== 'cancelled') {
-      o.items.forEach(item => {
+      (o.items || []).forEach(item => {
         skuCounts[item.name] = (skuCounts[item.name] || 0) + item.quantity;
       });
     }
