@@ -138,3 +138,33 @@ export function formatDate(isoString: string, lang: 'he' | 'en'): string {
     });
   }
 }
+// הוסף את הייצואים האלו ל-api.ts כדי לספק תאימות לקוד הקיים ב-App.tsx:
+
+export async function getStoredOrders(): Promise<Order[]> {
+  // במקום לשלוף מה-LocalStorage, אנחנו שולפים מהנתונים החיים
+  return await fetchLiveOrders();
+}
+
+export function saveStoredOrders(orders: Order[]): void {
+  // כרגע ריק, ניתן להוסיף לוגיקת Cache מקומית אם תרצה
+  console.log("Saving orders to local cache...", orders);
+}
+
+export function computeMetrics(orders: Order[]): MetricSummary {
+  // מחשב מדדים בזמן אמת מתוך ההזמנות
+  const activeWarehouses = new Set(orders.map(o => o.warehouse)).size;
+  const pendingDeliveries = orders.filter(o => o.status === 'pending' || o.status === 'processing').length;
+  const deliveredOrders = orders.filter(o => o.status === 'delivered').length;
+  const totalRevenue = orders
+    .filter(o => o.status !== 'cancelled')
+    .reduce((acc, o) => acc + o.totalAmount, 0);
+
+  return {
+    totalOrders: orders.length,
+    totalRevenue,
+    activeWarehouses,
+    pendingDeliveries,
+    deliveredOrders,
+    topSku: { name: 'כללי', quantity: 0 },
+  };
+}
