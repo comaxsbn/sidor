@@ -51,6 +51,45 @@ body {
   color: #f1f5f9;
 }
 
+/* --- Anti-Shaking & Hardware Accelerated Transitions --- */
+/* Pre-allocated transparent border to prevent border layout shifts */
+.border-shakeless {
+  border: 1px solid transparent;
+}
+.hover\:border-shakeless-active:hover {
+  border-color: var(--color-blue-500, #3b82f6);
+}
+
+/* Inset border using box-shadow instead of standard border layout shift */
+.hover-border-inset {
+  transition: box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: box-shadow;
+}
+.hover-border-inset:hover {
+  box-shadow: inset 0 0 0 2px var(--color-blue-500, #3b82f6);
+}
+
+/* Hardware accelerated scaling to bypass layout recalculation */
+.gpu-scale-hover {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, box-shadow;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.gpu-scale-hover:hover {
+  transform: scale(1.015) translateZ(0);
+}
+
+/* Custom interactive active state helpers */
+.touch-active-state {
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease-out, opacity 0.1s ease-out;
+}
+.touch-active-state:active {
+  transform: scale(0.985);
+  opacity: 0.95;
+}
+
 /* Card panels, headers, layouts */
 .dark .bg-white {
   background-color: #111827 !important; /* bg-slate-900 */
