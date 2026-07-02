@@ -24,7 +24,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { Order, OrderStatus, Language, AuditLogEntry } from '../types';
-import { translate, formatDate } from '../utils/api';
+import { translate, formatDate, MOCK_PRODUCTS } from '../utils/api';
 import { motion } from 'motion/react';
 
 interface DispatchTableProps {
