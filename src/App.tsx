@@ -964,7 +964,7 @@ export default function App() {
             <MetricCard
               title={isHe ? 'משלוחים בצנרת (בקבוק)' : 'Active Dispatch Pipeline'}
               value={metrics.pendingDeliveries}
-              subtitle={isHe ? 'ממתין + בטיפול' : 'Awaiting loading / route'}
+              subtitle={isHe ? 'חדש + בטיפול' : 'Awaiting loading / route'}
               icon={Clock}
               colorScheme="amber"
               isLoading={isLoading}

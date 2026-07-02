@@ -369,10 +369,44 @@ export default function DispatchTable({
     return metricsMap;
   }, [orders]);
 
+  // Local date helper functions (prevent timezone-shifts)
+  const getLocalTodayStr = (): string => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getLocalOffsetDateStr = (daysOffset: number): string => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysOffset);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getLocalSundayStr = (): string => {
+    const d = new Date();
+    const dayOfWeek = d.getDay();
+    d.setDate(d.getDate() - dayOfWeek);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getLocalFirstDayOfMonthStr = (): string => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}-01`;
+  };
+
   // Predefined date preset handler
-  const handleDatePreset = (preset: 'all' | 'today' | '7days' | '30days') => {
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+  const handleDatePreset = (preset: 'all' | 'today' | 'yesterday' | 'thisWeek' | '7days' | 'thisMonth' | '30days') => {
+    const todayStr = getLocalTodayStr();
     
     if (preset === 'all') {
       setStartDate('');
@@ -380,17 +414,50 @@ export default function DispatchTable({
     } else if (preset === 'today') {
       setStartDate(todayStr);
       setEndDate(todayStr);
+    } else if (preset === 'yesterday') {
+      const yesterdayStr = getLocalOffsetDateStr(-1);
+      setStartDate(yesterdayStr);
+      setEndDate(yesterdayStr);
+    } else if (preset === 'thisWeek') {
+      const sundayStr = getLocalSundayStr();
+      setStartDate(sundayStr);
+      setEndDate(todayStr);
     } else if (preset === '7days') {
-      const past = new Date();
-      past.setDate(past.getDate() - 7);
-      setStartDate(past.toISOString().split('T')[0]);
+      const pastStr = getLocalOffsetDateStr(-6);
+      setStartDate(pastStr);
+      setEndDate(todayStr);
+    } else if (preset === 'thisMonth') {
+      const firstOfMonthStr = getLocalFirstDayOfMonthStr();
+      setStartDate(firstOfMonthStr);
       setEndDate(todayStr);
     } else if (preset === '30days') {
-      const past = new Date();
-      past.setDate(past.getDate() - 30);
-      setStartDate(past.toISOString().split('T')[0]);
+      const pastStr = getLocalOffsetDateStr(-29);
+      setStartDate(pastStr);
       setEndDate(todayStr);
     }
+  };
+
+  const getActivePreset = (): 'all' | 'today' | 'yesterday' | 'thisWeek' | '7days' | 'thisMonth' | '30days' | 'custom' => {
+    const todayStr = getLocalTodayStr();
+    if (!startDate && !endDate) return 'all';
+    if (startDate === todayStr && endDate === todayStr) return 'today';
+    
+    const yesterdayStr = getLocalOffsetDateStr(-1);
+    if (startDate === yesterdayStr && endDate === yesterdayStr) return 'yesterday';
+    
+    const sundayStr = getLocalSundayStr();
+    if (startDate === sundayStr && endDate === todayStr) return 'thisWeek';
+    
+    const past7Str = getLocalOffsetDateStr(-6);
+    if (startDate === past7Str && endDate === todayStr) return '7days';
+    
+    const firstOfMonthStr = getLocalFirstDayOfMonthStr();
+    if (startDate === firstOfMonthStr && endDate === todayStr) return 'thisMonth';
+    
+    const past30Str = getLocalOffsetDateStr(-29);
+    if (startDate === past30Str && endDate === todayStr) return '30days';
+    
+    return 'custom';
   };
 
   // Clear all filters
@@ -574,11 +641,11 @@ export default function DispatchTable({
 
   // Render Status Badge
   const renderStatusBadge = (order: Order) => {
-    const status = order.status;
-    const config = {
+    const rawStatus = order.status || 'pending';
+    const statusMap = {
       pending: {
         bg: 'bg-amber-50/90 text-amber-800 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/50',
-        textHe: 'ממתין',
+        textHe: 'חדש',
         textEn: 'Pending',
       },
       processing: {
@@ -596,10 +663,12 @@ export default function DispatchTable({
         textHe: 'בוטל',
         textEn: 'Cancelled',
       },
-    }[status];
+    };
+    const normStatus = (rawStatus.toLowerCase().trim() as OrderStatus);
+    const config = statusMap[normStatus] || statusMap.pending;
 
     // Find last status change timestamp from auditLogs
-    const matchingLogs = auditLogs?.filter(log => log.orderId === order.id && log.newStatus === status) || [];
+    const matchingLogs = auditLogs?.filter(log => log.orderId === order.id && log.newStatus === normStatus) || [];
     const lastLog = matchingLogs[0]; // auditLogs are already sorted descending in api.ts
     const changeTimestamp = lastLog ? lastLog.timestamp : order.timestamp;
     
@@ -759,27 +828,41 @@ export default function DispatchTable({
           {/* 4. Date Range Picking */}
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              {isHe ? 'תאריכי קליטה' : 'Entry Date Range'}
+              <Calendar className="h-3 w-3 text-blue-500" />
+              {isHe ? 'סינון תאריכים מותאם אישית' : 'Custom Date Range'}
             </label>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5 bg-white/80 rounded-xl border border-slate-200 p-1 shadow-xs transition-all hover:border-slate-300 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-50/50">
               <input
                 id="filter-start-date"
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/40 py-1.5 px-2 text-[11px] outline-none font-medium transition-all focus:border-blue-500 focus:bg-white"
+                className="w-full bg-transparent py-0.5 px-1.5 text-[11px] font-semibold text-slate-700 outline-none cursor-pointer"
                 title={isHe ? 'תאריך התחלה' : 'Start Date'}
               />
-              <span className="text-slate-300 text-xs">-</span>
+              <span className="text-slate-400 text-xs font-bold font-mono">←</span>
               <input
                 id="filter-end-date"
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/40 py-1.5 px-2 text-[11px] outline-none font-medium transition-all focus:border-blue-500 focus:bg-white"
+                className="w-full bg-transparent py-0.5 px-1.5 text-[11px] font-semibold text-slate-700 outline-none cursor-pointer"
                 title={isHe ? 'תאריך סיום' : 'End Date'}
               />
+            </div>
+            {/* Range feedback badge */}
+            <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold bg-slate-50/80 border border-slate-200/50 rounded-lg px-2 py-0.5 w-full justify-between">
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                <span>
+                  {isHe 
+                    ? `טווח פעיל: ${startDate ? formatDate(startDate, lang) : 'התחלה'} ➔ ${endDate ? formatDate(endDate, lang) : 'היום'}` 
+                    : `Active: ${startDate ? formatDate(startDate, lang) : 'Start'} ➔ ${endDate ? formatDate(endDate, lang) : 'Today'}`}
+                </span>
+              </span>
+              <span className="font-mono bg-blue-50/80 text-blue-600 px-1 rounded">
+                {filteredOrders.length}
+              </span>
             </div>
           </div>
 
@@ -789,42 +872,31 @@ export default function DispatchTable({
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pt-3 border-t border-slate-100">
           
           {/* Quick Date Presets */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
               {isHe ? 'טווחים מהירים:' : 'Quick Presets:'}
             </span>
             <div className="flex flex-wrap gap-1">
               {[
-                { id: 'all', he: 'הכל', en: 'All' },
+                { id: 'all', he: 'כל הזמנים', en: 'All' },
                 { id: 'today', he: 'היום', en: 'Today' },
-                { id: '7days', he: '7 ימים', en: '7 Days' },
-                { id: '30days', he: '30 ימים', en: '30 Days' },
+                { id: 'yesterday', he: 'אתמול', en: 'Yesterday' },
+                { id: 'thisWeek', he: 'השבוע (א-ש)', en: 'This Week' },
+                { id: '7days', he: '7 ימים אחרונים', en: 'Last 7 Days' },
+                { id: 'thisMonth', he: 'החודש הנוכחי', en: 'This Month' },
+                { id: '30days', he: '30 ימים אחרונים', en: 'Last 30 Days' },
               ].map((p) => {
-                // Determine active preset
-                let isActive = false;
-                const todayStr = new Date().toISOString().split('T')[0];
-                if (p.id === 'all' && !startDate && !endDate) isActive = true;
-                if (p.id === 'today' && startDate === todayStr && endDate === todayStr) isActive = true;
-                if (p.id === '7days') {
-                  const past = new Date();
-                  past.setDate(past.getDate() - 7);
-                  if (startDate === past.toISOString().split('T')[0] && endDate === todayStr) isActive = true;
-                }
-                if (p.id === '30days') {
-                  const past = new Date();
-                  past.setDate(past.getDate() - 30);
-                  if (startDate === past.toISOString().split('T')[0] && endDate === todayStr) isActive = true;
-                }
+                const isActive = getActivePreset() === p.id;
 
                 return (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => handleDatePreset(p.id as any)}
-                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold border transition-all ${
+                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold border transition-all cursor-pointer shadow-xs ${
                       isActive
-                        ? 'bg-blue-50 text-blue-600 border-blue-200 shadow-sm'
-                        : 'bg-white text-slate-500 border-slate-200 hover:text-slate-800'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-102 font-black'
+                        : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
                     {isHe ? p.he : p.en}
@@ -843,7 +915,7 @@ export default function DispatchTable({
               {['all', 'pending', 'processing', 'delivered', 'cancelled'].map((status) => {
                 const label = {
                   all: isHe ? 'הכל' : 'All',
-                  pending: isHe ? 'ממתין' : 'Pending',
+                  pending: isHe ? 'חדש' : 'Pending',
                   processing: isHe ? 'בטיפול' : 'In Progress',
                   delivered: isHe ? 'נמסר' : 'Delivered',
                   cancelled: isHe ? 'בוטל' : 'Cancelled',
@@ -912,7 +984,7 @@ export default function DispatchTable({
                     if (st === 'cancelled') btnColor = 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200/50';
                     
                     const label = isHe 
-                      ? (st === 'pending' ? 'ממתין' : st === 'processing' ? 'בטיפול' : st === 'delivered' ? 'נמסר' : 'בוטל')
+                      ? (st === 'pending' ? 'חדש' : st === 'processing' ? 'בטיפול' : st === 'delivered' ? 'נמסר' : 'בוטל')
                       : (st === 'pending' ? 'Pending' : st === 'processing' ? 'Processing' : st === 'delivered' ? 'Delivered' : 'Cancelled');
                       
                     return (
@@ -1410,7 +1482,7 @@ export default function DispatchTable({
                                           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                                       }`}
                                     >
-                                      {isHe ? 'העבר לממתין' : 'Set Pending'}
+                                      {isHe ? 'סמן כחדש' : 'Set Pending'}
                                     </button>
                                     <button
                                       id={`dispatch-status-processing-${order.id}`}
@@ -1553,7 +1625,7 @@ export default function DispatchTable({
                 {lastLog && (
                   <span className="text-slate-500 font-medium block mt-0.5">
                     {isHe 
-                      ? `סטטוס שונה ל-${lastLog.newStatus === 'pending' ? 'ממתין' : lastLog.newStatus === 'processing' ? 'בטיפול' : lastLog.newStatus === 'delivered' ? 'נמסר' : 'בוטל'} ע"י ${lastLog.updatedBy}` 
+                      ? `סטטוס שונה ל-${lastLog.newStatus === 'pending' ? 'חדש' : lastLog.newStatus === 'processing' ? 'בטיפול' : lastLog.newStatus === 'delivered' ? 'נמסר' : 'בוטל'} ע"י ${lastLog.updatedBy}` 
                       : `Status updated to ${lastLog.newStatus} by ${lastLog.updatedBy}`}
                   </span>
                 )}
