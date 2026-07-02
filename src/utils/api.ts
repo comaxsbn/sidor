@@ -1,4 +1,9 @@
-import { Order, OrderItem, OrderStatus, AppConfig, AuditLogEntry } from '../types';
+import { Order, OrderItem, OrderStatus, AppConfig } from '../types';
+
+/**
+ * הכתובת המאוחדת של ה-Google Apps Script (יש להשתמש בה בכל הפונקציות)
+ */
+const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwJGML9egm2-JKh1sh0UhLI-oCev1_Ek07eWJg77PqrKZLmeOYXBSJK_udoD3Tk5VM-CA/exec";
 
 /**
  * Utility for parsing items string: "[SKU] Name - Qty"
@@ -41,8 +46,6 @@ export function parseItemsString(itemsStr: string, orderIdx: number): OrderItem[
  * Fetch live spreadsheet data via Google Apps Script WebApp
  */
 export async function fetchLiveOrders(): Promise<Order[]> {
-  const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwJGML9egm2-JKh1sh0UhLI-oCev1_Ek07eWJg77PqrKZLmeOYXBSJK_udoD3Tk5VM-CA/exec";
-  
   try {
     const response = await fetch(`${WEBAPP_URL}?action=getOrders`);
     
@@ -66,7 +69,7 @@ export async function fetchLiveOrders(): Promise<Order[]> {
       deliveryAddress: item.deliveryAddress,
       items: parseItemsString(item.items, idx),
       status: item.status as OrderStatus,
-      totalAmount: 0, // Should be calculated or returned by API
+      totalAmount: 0, 
       messageId: item.messageId
     })).sort((a: Order, b: Order) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
@@ -80,8 +83,6 @@ export async function fetchLiveOrders(): Promise<Order[]> {
  * Update order status directly in the Google Sheet via Apps Script WebApp
  */
 export async function updateLiveOrderStatus(orderNumber: string, status: OrderStatus): Promise<boolean> {
-  const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbztycOyLLcQe9cOAtrtsrEg8zCe7F39CXWgQ2wWoAPuGlhD6CNVDaWNzEiNM0vjzQALsw/exec";
-  
   try {
     const response = await fetch(`${WEBAPP_URL}?action=updateStatus&orderNumber=${encodeURIComponent(orderNumber)}&status=${encodeURIComponent(status)}`);
     
@@ -99,7 +100,7 @@ export async function updateLiveOrderStatus(orderNumber: string, status: OrderSt
 
 export function getStoredConfig(): AppConfig {
   return {
-    webappUrl: "https://script.google.com/macros/s/AKfycbztycOyLLcQe9cOAtrtsrEg8zCe7F39CXWgQ2wWoAPuGlhD6CNVDaWNzEiNM0vjzQALsw/exec",
+    webappUrl: WEBAPP_URL,
     mode: 'live'
   };
 }
