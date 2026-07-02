@@ -1,5 +1,5 @@
 import { Order, OrderItem, OrderStatus, AppConfig, MetricSummary, AuditLogEntry } from '../types';
-
+ 
 // Default mock items for SabanOS Logistics
 export const MOCK_PRODUCTS = [
   { sku: 'SBN-PL-01', name: 'משטח עץ אירופאי תקני', price: 85, nameEn: 'Standard Euro Wooden Pallet' },
