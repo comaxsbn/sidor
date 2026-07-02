@@ -893,7 +893,7 @@ export default function DispatchTable({
                     key={p.id}
                     type="button"
                     onClick={() => handleDatePreset(p.id as any)}
-                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold border transition-all cursor-pointer shadow-xs ${
+                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold border transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state cursor-pointer shadow-xs ${
                       isActive
                         ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-102 font-black'
                         : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300 hover:bg-slate-50'
@@ -948,6 +948,57 @@ export default function DispatchTable({
       {/* Main Table Card */}
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         
+        {/* Quick-filter status pill buttons */}
+        <div className="px-4 py-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center gap-3 justify-between">
+          <div className="flex flex-wrap items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
+              {isHe ? 'סינון מהיר:' : 'Quick Filter:'}
+            </span>
+            {[
+              { id: 'all', labelHe: 'הכל', labelEn: 'All', count: orders.length, color: 'blue' },
+              { id: 'pending', labelHe: 'חדש', labelEn: 'Pending', count: orders.filter(o => o.status === 'pending').length, color: 'amber' },
+              { id: 'processing', labelHe: 'בטיפול', labelEn: 'In-Transit', count: orders.filter(o => o.status === 'processing').length, color: 'blue' },
+              { id: 'delivered', labelHe: 'נמסר', labelEn: 'Delivered', count: orders.filter(o => o.status === 'delivered').length, color: 'emerald' }
+            ].map(pill => {
+              const isActive = selectedStatus === pill.id;
+              
+              let activeClass = '';
+              let inactiveClass = 'bg-white text-slate-600 border-slate-200/80 hover:bg-slate-50 hover:text-slate-900';
+              
+              if (pill.color === 'amber') {
+                activeClass = 'bg-amber-600 text-white border-amber-600 shadow-amber-100 shadow-xs font-black';
+              } else if (pill.color === 'emerald') {
+                activeClass = 'bg-emerald-600 text-white border-emerald-600 shadow-emerald-100 shadow-xs font-black';
+              } else {
+                activeClass = 'bg-blue-600 text-white border-blue-600 shadow-blue-100 shadow-xs font-black';
+              }
+              
+              return (
+                <button
+                  key={pill.id}
+                  type="button"
+                  onClick={() => setSelectedStatus(pill.id)}
+                  className={`rounded-full px-3.5 py-1 text-xs font-bold border flex items-center gap-2 transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state cursor-pointer ${
+                    isActive ? activeClass : inactiveClass
+                  }`}
+                >
+                  <span>{isHe ? pill.labelHe : pill.labelEn}</span>
+                  <span className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-bold font-mono transition-colors ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {pill.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[10px] text-slate-400 font-bold hidden sm:block">
+            {isHe 
+              ? `מציג ${filteredOrders.length} מתוך ${orders.length} הזמנות` 
+              : `Showing ${filteredOrders.length} of ${orders.length} orders`}
+          </div>
+        </div>
+
         {/* Real-time search input above the dispatch table OR Bulk Action Bar if items selected */}
         <div className="border-b border-slate-100 bg-slate-50/40 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 min-h-[56px]">
           {selectedOrderIds.length > 0 ? (
@@ -996,7 +1047,7 @@ export default function DispatchTable({
                           });
                           setSelectedOrderIds([]);
                         }}
-                        className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all border ${btnColor} hover:scale-102 cursor-pointer shadow-xs`}
+                        className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state border ${btnColor} hover:scale-102 cursor-pointer shadow-xs`}
                         id={`bulk-status-${st}`}
                       >
                         {label}
@@ -1229,7 +1280,7 @@ export default function DispatchTable({
                           delay: Math.min(idx * 0.025, 0.35), 
                           ease: "easeOut" 
                         }}
-                        className={`group cursor-pointer transition-all hover:bg-slate-50/80 ${
+                        className={`group cursor-pointer transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state hover:bg-slate-50/80 ${
                           order.orderNumber === selectedOrderNumber
                             ? 'bg-amber-50 hover:bg-amber-100/90 ring-2 ring-amber-400 ring-offset-2 font-semibold shadow-md'
                             : isExpanded
@@ -1476,7 +1527,7 @@ export default function DispatchTable({
                                     <button
                                       id={`dispatch-status-pending-${order.id}`}
                                       onClick={() => onUpdateStatus(order.id, 'pending')}
-                                      className={`rounded-lg py-1.5 px-2.5 text-xs font-semibold border transition-all text-center ${
+                                      className={`rounded-lg py-1.5 px-2.5 text-xs font-semibold border transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state text-center ${
                                         order.status === 'pending'
                                           ? 'bg-amber-100 text-amber-800 border-amber-300'
                                           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
@@ -1487,7 +1538,7 @@ export default function DispatchTable({
                                     <button
                                       id={`dispatch-status-processing-${order.id}`}
                                       onClick={() => onUpdateStatus(order.id, 'processing')}
-                                      className={`rounded-lg py-1.5 px-2.5 text-xs font-semibold border transition-all text-center ${
+                                      className={`rounded-lg py-1.5 px-2.5 text-xs font-semibold border transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state text-center ${
                                         order.status === 'processing'
                                           ? 'bg-blue-100 text-blue-800 border-blue-300'
                                           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
@@ -1498,7 +1549,7 @@ export default function DispatchTable({
                                     <button
                                       id={`dispatch-status-delivered-${order.id}`}
                                       onClick={() => onUpdateStatus(order.id, 'delivered')}
-                                      className={`rounded-lg py-1.5 px-2.5 text-xs font-semibold border transition-all text-center col-span-2 ${
+                                      className={`rounded-lg py-1.5 px-2.5 text-xs font-semibold border transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state text-center col-span-2 ${
                                         order.status === 'delivered'
                                           ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                                           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
@@ -1509,7 +1560,7 @@ export default function DispatchTable({
                                     <button
                                       id={`dispatch-status-cancelled-${order.id}`}
                                       onClick={() => onUpdateStatus(order.id, 'cancelled')}
-                                      className={`rounded-lg py-1.5 px-2.5 text-xs font-semibold border transition-all text-center ${
+                                      className={`rounded-lg py-1.5 px-2.5 text-xs font-semibold border transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state text-center ${
                                         order.status === 'cancelled'
                                           ? 'bg-slate-200 text-slate-800 border-slate-300'
                                           : 'bg-white text-rose-600 border-rose-100 hover:bg-rose-50/50'
@@ -1522,7 +1573,7 @@ export default function DispatchTable({
                                       <button
                                         id={`dispatch-delete-${order.id}`}
                                         onClick={() => onDeleteOrder(order.id)}
-                                        className="rounded-lg py-1.5 px-2.5 text-xs font-semibold border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-all text-center flex items-center justify-center gap-1"
+                                        className="rounded-lg py-1.5 px-2.5 text-xs font-semibold border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-all duration-200 ease-out gpu-scale-hover hover-border-inset touch-active-state text-center flex items-center justify-center gap-1"
                                       >
                                         <Trash2 className="h-3 w-3" />
                                         <span>{isHe ? 'מחק לחלוטין' : 'Delete Log'}</span>
