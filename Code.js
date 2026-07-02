@@ -1,28 +1,62 @@
 /**
- * SabanOS - Production Google Sheets Systems Integrator
- * Sheet ID: 1Y_2N4Gs-lvAiv8fvLk9zvIhVQt5YxNPz6mCOnlh6lh8
- * Sheet Name: לוג_הזמנות_מערכת
+ * SabanOS - Production Google Sheets & Cloud Firestore Systems Integrator
  * 
- * Instructions:
- * 1. Open your Google Sheet
+ * Target Sheet ID: 1Y_2N4Gs-lvAiv8fvLk9zvIhVQt5YxNPz6mCOnlh6lh8
+ * Target Sheet Name: לוג_הזמנות_מערכת
+ * 
+ * -------------------------------------------------------------------------
+ * ROOT CAUSE OF THE 403 ERROR:
+ * The 403 Permission Denied (CONSUMER_INVALID) error occurred because the
+ * Google Apps Script was pointing to an incorrect Project ID.
+ * This production-grade script uses the correct, authorized credentials:
+ *   - Project ID: gen-lang-client-0262645162
+ *   - Database ID: ai-studio-sabanosenterpris-8ad4b65f-f5d9-4535-b28a-1f69f6cd447e
+ *   - API Key: AIzaSyBMY3g9ryK2yE2d-lecxQSSsK--JG3ev4A
+ * -------------------------------------------------------------------------
+ * 
+ * Deployment Instructions:
+ * 1. Open your Google Sheet (ID: 1Y_2N4Gs-lvAiv8fvLk9zvIhVQt5YxNPz6mCOnlh6lh8)
  * 2. Click Extensions -> Apps Script
- * 3. Replace all code with this file's contents
- * 4. Click Deploy -> New Deployment
- * 5. Choose Type: Web App
- * 6. Set "Execute as": Me
- * 7. Set "Who has access": Anyone
- * 8. Click Deploy, authorize permissions, and copy the Web App URL.
- * 9. Paste this URL into the SabanOS dashboard settings panel.
+ * 3. Delete any default code and replace it entirely with this file.
+ * 4. Click Deploy -> New Deployment.
+ * 5. Choose type: Web App.
+ * 6. Set "Execute as": Me.
+ * 7. Set "Who has access": Anyone.
+ * 8. Authorize permissions when prompted and copy the generated Web App URL.
+ * 9. (Optional) Set up an "On Edit" trigger pointing to the `onEditTrigger` function
+ *    to sync changes to Firestore automatically in real-time when edited.
  */
 
+// =========================================================================
+// Configuration Constants
+// =========================================================================
 const SHEET_ID = "1Y_2N4Gs-lvAiv8fvLk9zvIhVQt5YxNPz6mCOnlh6lh8";
 const SHEET_NAME = "לוג_הזמנות_מערכת";
+
+// Correct and authorized Firebase credentials from firebase-applet-config
+const FIREBASE_PROJECT_ID = "gen-lang-client-0262645162";
+const FIREBASE_DATABASE_ID = "ai-studio-sabanosenterpris-8ad4b65f-f5d9-4535-b28a-1f69f6cd447e";
+const FIREBASE_API_KEY = "AIzaSyBMY3g9ryK2yE2d-lecxQSSsK--JG3ev4A";
+
+// Firestore Collection
+const COLLECTION_NAME = "orders";
+
+// Standard Product Price Catalog matching SabanOS Catalog
+const PRODUCT_PRICES = {
+  'SBN-PL-01': 85,
+  'SBN-ST-05': 42,
+  'SBN-TP-12': 18,
+  'SBN-BB-08': 65,
+  'SBN-ST-22': 120,
+  'SBN-LB-40': 35,
+  'SBN-BX-10': 95,
+  'SBN-CN-03': 110,
+};
 
 /**
  * Handle GET requests to fetch live logistics orders or perform query-based actions
  */
 function doGet(e) {
-  // Support JSONP or CORS
   const callback = e && e.parameter && e.parameter.callback;
   
   try {
@@ -36,21 +70,20 @@ function doGet(e) {
       }, callback);
     }
 
-    // Determine requested action
     const action = e && e.parameter && e.parameter.action;
 
-    // Handle query parameter actions (e.g. updating order status via GET for simplicity)
+    // Action: Update Order Status
     if (action === 'updateStatus') {
       const orderNumber = e.parameter.orderNumber;
       const newStatus = e.parameter.status;
       if (!orderNumber || !newStatus) {
         return createJsonResponse({ success: false, error: "Missing orderNumber or status parameters" }, callback);
       }
-      const success = updateSheetOrderStatus(orderNumber, newStatus);
+      const success = updateSheetOrderStatusAndSync(orderNumber, newStatus);
       return createJsonResponse({ success: success, orderNumber: orderNumber, status: newStatus }, callback);
     }
 
-    // Default to fetch orders if action is empty or is specifically 'getOrders'
+    // Default or Explicit: Get Orders
     if (action && action !== 'getOrders') {
       return createJsonResponse({
         success: false,
@@ -68,38 +101,22 @@ function doGet(e) {
       }, callback);
     }
     
+    const headers = values[0];
+    const colIndices = findColumnIndices(headers);
     const data = [];
     
-    // Row 0 is header. Loop through remaining rows.
+    // Loop through rows skipping the header row
     for (var i = 1; i < values.length; i++) {
       const row = values[i];
-      // Skip row if Order Number is empty or blank
-      if (!row[1] || String(row[1]).trim() === "") continue; 
+      const rawOrderNo = row[colIndices.orderNumber];
+      if (!rawOrderNo || String(rawOrderNo).trim() === "") continue; 
       
-      // Map precisely to production indices:
-      // [0] תאריך קליטה (timestamp)
-      // [1] הזמנה (orderNumber / Order Number)
-      // [2] לקוח (customerName / Customer)
-      // [3] מחסן (warehouse / Warehouse)
-      // [4] כתובת (deliveryAddress / Address)
-      // [5] פריטים (items string: newline-separated, format like [SKU] Name - Qty)
-      // [6] סטטוס (status / Status/Make)
-      // [7] מודל מנצח (modelUsed / Model)
-      // [8] טוקנים (tokens / Tokens)
-      // [9] מזהה מייל (messageId / Message ID)
-      
-      data.push({
-        timestamp: row[0] ? formatCellDate(row[0]) : "",
-        orderNumber: String(row[1]).trim(),
-        customerName: String(row[2]).trim(),
-        warehouse: String(row[3]).trim(),
-        deliveryAddress: String(row[4]).trim(),
-        items: String(row[5] || "").trim(),
-        status: String(row[6] || "pending").trim().toLowerCase(),
-        modelUsed: String(row[7] || "").trim(),
-        tokens: Number(row[8]) || 0,
-        messageId: String(row[9] || "").trim()
-      });
+      try {
+        const orderPayload = buildOrderPayload(row, colIndices, i + 1);
+        data.push(orderPayload);
+      } catch (rowErr) {
+        console.warn("Skipping row #" + (i + 1) + " due to error: " + rowErr.toString());
+      }
     }
     
     return createJsonResponse({
@@ -135,7 +152,7 @@ function doPost(e) {
         return createJsonResponse({ success: false, error: "Missing orderNumber or status in request body" });
       }
       
-      const success = updateSheetOrderStatus(orderNumber, newStatus);
+      const success = updateSheetOrderStatusAndSync(orderNumber, newStatus);
       return createJsonResponse({ success: success, orderNumber: orderNumber, status: newStatus });
     }
     
@@ -146,22 +163,284 @@ function doPost(e) {
 }
 
 /**
- * Find order row in sheet and update its status cell (Column Index 6 -> Column G)
+ * Triggered automatically on Sheet edits to sync single rows to Firestore in real-time
  */
-function updateSheetOrderStatus(orderNumber, status) {
+function onEditTrigger(e) {
+  if (!e) return;
+  try {
+    const sheet = e.source.getActiveSheet();
+    if (sheet.getName() !== SHEET_NAME) return;
+    
+    const range = e.range;
+    const rowIndex = range.getRow();
+    
+    // Skip header row
+    if (rowIndex <= 1) return;
+    
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const colIndices = findColumnIndices(headers);
+    
+    const row = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+    const rawOrderNo = row[colIndices.orderNumber];
+    if (!rawOrderNo || String(rawOrderNo).trim() === "") return;
+    const orderNumber = String(rawOrderNo).trim();
+    
+    const orderPayload = buildOrderPayload(row, colIndices, rowIndex);
+    syncToFirestoreRest(orderNumber, orderPayload);
+    console.log("Real-time trigger: Successfully synced order " + orderNumber + " to Firestore.");
+  } catch (err) {
+    console.error("Real-time edit trigger failed: " + err.toString());
+  }
+}
+
+/**
+ * Full Sync: Read all rows from the Sheet and upsert them to Firestore (with dynamic header indexing)
+ */
+function syncSheetToFirebase() {
+  console.log("=== Starting SabanOS Full Sheet-to-Firebase Sync ===");
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_NAME);
+    if (!sheet) {
+      throw new Error("Sheet '" + SHEET_NAME + "' not found.");
+    }
+    
+    const range = sheet.getDataRange();
+    const values = range.getValues();
+    if (values.length <= 1) {
+      console.log("No orders found to sync.");
+      return;
+    }
+    
+    const headers = values[0];
+    const colIndices = findColumnIndices(headers);
+    
+    var successCount = 0;
+    var failureCount = 0;
+    
+    for (var i = 1; i < values.length; i++) {
+      const row = values[i];
+      const rawOrderNo = row[colIndices.orderNumber];
+      if (!rawOrderNo || String(rawOrderNo).trim() === "") continue;
+      
+      const orderNumber = String(rawOrderNo).trim();
+      try {
+        const orderPayload = buildOrderPayload(row, colIndices, i + 1);
+        syncToFirestoreRest(orderNumber, orderPayload);
+        successCount++;
+      } catch (rowError) {
+        console.error("Failed to sync Row #" + (i + 1) + " (Order " + orderNumber + "): " + rowError.toString());
+        failureCount++;
+      }
+    }
+    
+    console.log("=== Full Sync Complete: " + successCount + " Succeeded, " + failureCount + " Failed ===");
+  } catch (error) {
+    console.error("FATAL ERROR in syncSheetToFirebase: " + error.toString());
+  }
+}
+
+/**
+ * Finds column indexes based on header names dynamically to support reordered sheets
+ */
+function findColumnIndices(headers) {
+  const indices = {
+    timestamp: 0,
+    orderNumber: 1,
+    customerName: 2,
+    warehouse: 3,
+    deliveryAddress: 4,
+    items: 5,
+    status: 6,
+    notes: -1,
+    modelUsed: -1,
+    tokens: -1,
+    messageId: -1,
+    latitude: -1,
+    longitude: -1
+  };
+  
+  for (var i = 0; i < headers.length; i++) {
+    const header = String(headers[i]).trim().toLowerCase();
+    
+    if (header.indexOf("תאריך") !== -1 || header.indexOf("זמן") !== -1 || header === "timestamp" || header === "date") {
+      indices.timestamp = i;
+    } else if (header.indexOf("מספר הזמנה") !== -1 || header.indexOf("הזמנה") !== -1 || header === "ordernumber" || header === "order") {
+      indices.orderNumber = i;
+    } else if (header.indexOf("לקוח") !== -1 || header === "customername" || header === "customer") {
+      indices.customerName = i;
+    } else if (header.indexOf("מחסן") !== -1 || header === "warehouse") {
+      indices.warehouse = i;
+    } else if (header.indexOf("כתובת") !== -1 || header === "deliveryaddress" || header === "address") {
+      indices.deliveryAddress = i;
+    } else if (header.indexOf("פריטים") !== -1 || header.indexOf("תכולה") !== -1 || header === "items" || header === "products") {
+      indices.items = i;
+    } else if (header.indexOf("סטטוס") !== -1 || header.indexOf("מצב") !== -1 || header === "status") {
+      indices.status = i;
+    } else if (header.indexOf("הערות") !== -1 || header === "notes") {
+      indices.notes = i;
+    } else if (header.indexOf("מודל") !== -1 || header === "modelused" || header === "model") {
+      indices.modelUsed = i;
+    } else if (header.indexOf("טוקנים") !== -1 || header === "tokens") {
+      indices.tokens = i;
+    } else if (header.indexOf("הודעה") !== -1 || header === "messageid") {
+      indices.messageId = i;
+    } else if (header.indexOf("קו רוחב") !== -1 || header === "latitude" || header === "lat") {
+      indices.latitude = i;
+    } else if (header.indexOf("קו אורך") !== -1 || header === "longitude" || header === "lng") {
+      indices.longitude = i;
+    }
+  }
+  
+  return indices;
+}
+
+/**
+ * Builds standard structured JSON Order payload from a Sheet row
+ */
+function buildOrderPayload(row, colIndices, rowIndex) {
+  const orderNumber = String(row[colIndices.orderNumber]).trim();
+  
+  const rawDate = row[colIndices.timestamp];
+  const customerName = String(row[colIndices.customerName] || 'לקוח לא ידוע').trim();
+  const warehouse = String(row[colIndices.warehouse] || 'מחסן החרש').trim();
+  const deliveryAddress = String(row[colIndices.deliveryAddress] || '').trim();
+  const itemsRaw = String(row[colIndices.items] || '').trim();
+  const statusRaw = String(row[colIndices.status] || 'pending').trim().toLowerCase();
+  
+  // Parse optional fields dynamically if present
+  const notes = colIndices.notes !== -1 && row[colIndices.notes] ? String(row[colIndices.notes]).trim() : undefined;
+  const modelUsed = colIndices.modelUsed !== -1 && row[colIndices.modelUsed] ? String(row[colIndices.modelUsed]).trim() : undefined;
+  const tokens = colIndices.tokens !== -1 && row[colIndices.tokens] ? Number(row[colIndices.tokens]) : undefined;
+  const messageId = colIndices.messageId !== -1 && row[colIndices.messageId] ? String(row[colIndices.messageId]).trim() : undefined;
+  const latitude = colIndices.latitude !== -1 && row[colIndices.latitude] ? Number(row[colIndices.latitude]) : undefined;
+  const longitude = colIndices.longitude !== -1 && row[colIndices.longitude] ? Number(row[colIndices.longitude]) : undefined;
+  
+  // Format Timestamp
+  var timestampIso = "";
+  if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
+    timestampIso = rawDate.toISOString();
+  } else if (rawDate) {
+    try {
+      timestampIso = new Date(rawDate).toISOString();
+    } catch (e) {
+      timestampIso = new Date().toISOString();
+    }
+  } else {
+    timestampIso = new Date().toISOString();
+  }
+  
+  // Parse the items from multi-line text format
+  const items = parseItemsString(itemsRaw, rowIndex);
+  
+  // Calculate Dynamic total price
+  const totalAmount = items.reduce(function(sum, item) {
+    return sum + (item.price * item.quantity);
+  }, 0);
+  
+  const payload = {
+    id: orderNumber,
+    orderNumber: orderNumber,
+    timestamp: timestampIso,
+    customerName: customerName,
+    warehouse: warehouse,
+    deliveryAddress: deliveryAddress,
+    items: items,
+    itemsRawString: itemsRaw,
+    status: statusRaw,
+    totalAmount: totalAmount
+  };
+  
+  // Map optional coordinates and metadata
+  if (notes) payload.notes = notes;
+  if (modelUsed) payload.modelUsed = modelUsed;
+  if (tokens !== undefined && !isNaN(tokens)) payload.tokens = tokens;
+  if (messageId) payload.messageId = messageId;
+  if (latitude !== undefined && !isNaN(latitude)) payload.latitude = latitude;
+  if (longitude !== undefined && !isNaN(longitude)) payload.longitude = longitude;
+  
+  return payload;
+}
+
+/**
+ * Multi-line items string parser: Parses format "[SKU] Name - Qty"
+ */
+function parseItemsString(itemsStr, rowIndex) {
+  if (!itemsStr) return [];
+  
+  var lines = itemsStr.split(/[\n\r;]+/).map(function(line) {
+    return line.trim();
+  }).filter(function(line) {
+    return line.length > 0;
+  });
+  
+  return lines.map(function(line, itemIdx) {
+    var sku = 'SBN-GEN-99';
+    var name = line;
+    var quantity = 1;
+    
+    // Match sku pattern in square brackets
+    var skuMatch = line.match(/^\[([^\]]+)\]/);
+    if (skuMatch) {
+      sku = skuMatch[1].trim();
+      name = line.substring(skuMatch[0].length).trim();
+    }
+    
+    // Match ending quantity number (e.g. " - 12", " 12", " x12", ": 12")
+    var qtyMatch = name.match(/(?:\s*[-xX:]\s*|\s+)(\d+)\s*$/);
+    if (qtyMatch) {
+      quantity = parseInt(qtyMatch[1], 10) || 1;
+      name = name.substring(0, qtyMatch.index).trim();
+    }
+    
+    // Clean trailing/leading separators
+    name = name.replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
+    
+    var price = PRODUCT_PRICES[sku] || 50;
+    
+    return {
+      id: "item-" + rowIndex + "-" + itemIdx + "-" + sku,
+      sku: sku,
+      name: name || 'פריט לוגיסטי',
+      price: price,
+      quantity: quantity
+    };
+  });
+}
+
+/**
+ * Updates status cell in the Sheet, and syncs that updated order to Firestore immediately
+ */
+function updateSheetOrderStatusAndSync(orderNumber, status) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) return false;
   
   const range = sheet.getDataRange();
   const values = range.getValues();
+  const headers = values[0];
+  const colIndices = findColumnIndices(headers);
   
   for (var i = 1; i < values.length; i++) {
-    // Column [1] is 'הזמנה' (orderNumber)
-    if (String(values[i][1]).trim() === String(orderNumber).trim()) {
-      // Column [6] (G) is 'סטטוס' (status).
-      // Row is i + 1 (1-indexed in Google Sheets), Column G is 7.
-      sheet.getRange(i + 1, 7).setValue(status);
+    const row = values[i];
+    const rowOrderNum = String(row[colIndices.orderNumber]).trim();
+    if (rowOrderNum === String(orderNumber).trim()) {
+      const rowIndex = i + 1;
+      const statusColIndex = colIndices.status + 1; // 1-indexed for range
+      
+      // Update cell in Google Sheet
+      sheet.getRange(rowIndex, statusColIndex).setValue(status);
+      
+      // Fetch latest row data to build payload
+      const updatedRow = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+      try {
+        const payload = buildOrderPayload(updatedRow, colIndices, rowIndex);
+        syncToFirestoreRest(orderNumber, payload);
+        console.log("Successfully updated sheet and synced to Firestore for " + orderNumber);
+      } catch (syncErr) {
+        console.error("Failed to sync updated order " + orderNumber + " to Firestore: " + syncErr.toString());
+      }
+      
       return true;
     }
   }
@@ -169,23 +448,99 @@ function updateSheetOrderStatus(orderNumber, status) {
 }
 
 /**
- * Helper to format date cells safely to ISO strings
+ * Direct Firebase Firestore REST API patch call
  */
-function formatCellDate(cellValue) {
-  if (cellValue instanceof Date) {
-    return cellValue.toISOString();
+function syncToFirestoreRest(documentId, orderPayload) {
+  const url = "https://firestore.googleapis.com/v1/projects/" 
+    + FIREBASE_PROJECT_ID 
+    + "/databases/" 
+    + FIREBASE_DATABASE_ID 
+    + "/documents/" 
+    + COLLECTION_NAME 
+    + "/" 
+    + encodeURIComponent(documentId)
+    + "?key=" 
+    + FIREBASE_API_KEY;
+    
+  const firestoreDoc = toFirestoreDoc(orderPayload);
+  
+  const options = {
+    method: "patch",
+    contentType: "application/json",
+    payload: JSON.stringify(firestoreDoc),
+    muteHttpExceptions: true
+  };
+  
+  const response = UrlFetchApp.fetch(url, options);
+  const responseCode = response.getResponseCode();
+  const responseText = response.getContentText();
+  
+  if (responseCode < 200 || responseCode >= 300) {
+    throw new Error("Firestore REST sync failed with status " + responseCode + ". Body: " + responseText);
   }
-  try {
-    const d = new Date(cellValue);
-    if (!isNaN(d.getTime())) {
-      return d.toISOString();
-    }
-  } catch (e) {}
-  return String(cellValue);
 }
 
 /**
- * Helper to build standard cross-origin JSON responses
+ * Convert standard JS value types to Firestore REST API types
+ */
+function toFirestoreValue(val) {
+  if (val === null || val === undefined) {
+    return { nullValue: null };
+  }
+  if (typeof val === 'boolean') {
+    return { booleanValue: val };
+  }
+  if (typeof val === 'number') {
+    if (Number.isInteger(val)) {
+      return { integerValue: val.toString() };
+    } else {
+      return { doubleValue: val };
+    }
+  }
+  if (typeof val === 'string') {
+    return { stringValue: val };
+  }
+  if (val instanceof Date) {
+    return { timestampValue: val.toISOString() };
+  }
+  if (Array.isArray(val)) {
+    return {
+      arrayValue: {
+        values: val.map(toFirestoreValue)
+      }
+    };
+  }
+  if (typeof val === 'object') {
+    var fields = {};
+    for (var key in val) {
+      if (val.hasOwnProperty(key)) {
+        fields[key] = toFirestoreValue(val[key]);
+      }
+    }
+    return {
+      mapValue: {
+        fields: fields
+      }
+    };
+  }
+  return { stringValue: String(val) };
+}
+
+/**
+ * Convert Javascript object to Firestore document structure
+ */
+function toFirestoreDoc(obj) {
+  var fields = {};
+  for (var key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      fields[key] = toFirestoreValue(obj[key]);
+    }
+  }
+  return { fields: fields };
+}
+
+/**
+ * Helper to build cross-origin JSON outputs
  */
 function createJsonResponse(data, callback) {
   const jsonString = JSON.stringify(data);
