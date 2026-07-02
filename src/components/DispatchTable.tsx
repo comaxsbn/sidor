@@ -1235,9 +1235,7 @@ export default function DispatchTable({
                                       <tr className="border-b border-slate-100 bg-slate-50 font-bold text-slate-400 uppercase tracking-wider">
                                         <th className="py-2 px-3">{isHe ? 'מק"ט' : 'SKU'}</th>
                                         <th className="py-2 px-3">{isHe ? 'תיאור פריט' : 'Product Description'}</th>
-                                        <th className="py-2 px-3 text-right">{isHe ? 'מחיר יחידה' : 'Unit Price'}</th>
                                         <th className="py-2 px-3 text-center">{isHe ? 'כמות' : 'Qty'}</th>
-                                        <th className="py-2 px-3 text-right">{isHe ? 'סה"כ לתשלום' : 'Subtotal'}</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -1245,13 +1243,53 @@ export default function DispatchTable({
                                         <tr key={item.id} className="hover:bg-slate-50/50">
                                           <td className="py-2 px-3 font-mono font-semibold text-slate-500">{item.sku}</td>
                                           <td className="py-2 px-3 font-semibold text-slate-800">{translate(item.name, lang)}</td>
-                                          <td className="py-2 px-3 text-right">₪{item.price}</td>
                                           <td className="py-2 px-3 text-center font-bold text-slate-900 bg-slate-50/30">{item.quantity}</td>
-                                          <td className="py-2 px-3 text-right font-semibold text-slate-900">₪{(item.price * item.quantity).toLocaleString()}</td>
                                         </tr>
                                       ))}
                                     </tbody>
                                   </table>
+
+                                  {/* Product Calculation & Summary Row */}
+                                  <div className="bg-blue-50/40 border-t border-blue-100 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                                    <div className="flex flex-wrap gap-2.5 text-[11px] font-semibold text-slate-600">
+                                      <span className="flex items-center gap-1 bg-white border border-slate-200/80 px-2 py-0.5 rounded shadow-2xs">
+                                        <span>{isHe ? 'מוצרים שונים:' : 'Unique SKUs:'}</span>
+                                        <strong className="text-slate-950 font-black">
+                                          {order.items?.length || 0}
+                                        </strong>
+                                      </span>
+                                      
+                                      <span className="flex items-center gap-1 bg-white border border-slate-200/80 px-2 py-0.5 rounded shadow-2xs">
+                                        <span>{isHe ? 'סה״כ יחידות סחורה:' : 'Total Units Count:'}</span>
+                                        <strong className="text-emerald-600 font-black">
+                                          {order.items?.reduce((sum, item) => sum + item.quantity, 0) || 0}
+                                        </strong>
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                                        {isHe ? 'עומס משוער:' : 'Est. Cargo Load:'}
+                                      </span>
+                                      {(() => {
+                                        const totalQty = order.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+                                        let loadLabel = isHe ? 'קל' : 'Light';
+                                        let loadColor = 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20';
+                                        if (totalQty > 15) {
+                                          loadLabel = isHe ? 'כבד מאוד' : 'Heavy';
+                                          loadColor = 'bg-rose-500/10 text-rose-600 border-rose-500/20';
+                                        } else if (totalQty > 6) {
+                                          loadLabel = isHe ? 'בינוני' : 'Medium';
+                                          loadColor = 'bg-amber-500/10 text-amber-600 border-amber-500/20';
+                                        }
+                                        return (
+                                          <span className={`text-[10px] font-black border rounded px-1.5 py-0.5 ${loadColor}`}>
+                                            {loadLabel}
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
 
@@ -1475,8 +1513,15 @@ export default function DispatchTable({
                   <span className="text-slate-200">{translate(order.warehouse, lang)}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 font-medium block">{isHe ? 'סה"כ לתשלום:' : 'Total Value:'}</span>
-                  <span className="text-indigo-400 font-bold">₪{order.totalAmount.toLocaleString()}</span>
+                  <span className="text-slate-400 font-medium block">{isHe ? 'עומס לוגיסטי:' : 'Cargo Load:'}</span>
+                  <span className="text-indigo-400 font-black">
+                    {(() => {
+                      const totalQty = order.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+                      return isHe 
+                        ? (totalQty > 15 ? 'כבד' : totalQty > 6 ? 'בינוני' : 'קל')
+                        : (totalQty > 15 ? 'Heavy' : totalQty > 6 ? 'Medium' : 'Light');
+                    })()}
+                  </span>
                 </div>
               </div>
 

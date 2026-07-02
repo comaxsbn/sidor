@@ -47,7 +47,7 @@ interface MorningReportProps {
 export default function MorningReport({ orders, lang }: MorningReportProps) {
   const isHe = lang === 'he';
   const [copied, setCopied] = useState(false);
-  const [includeFinancials, setIncludeFinancials] = useState(false);
+  const includeFinancials = false;
 
   // Aggregations
   const stats = useMemo(() => {
@@ -68,11 +68,6 @@ export default function MorningReport({ orders, lang }: MorningReportProps) {
       return isTalmid && o.status !== 'cancelled' && o.status !== 'delivered';
     }).length;
 
-    // Financial valuation
-    const totalValue = active.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-    const deliveredValue = orders.filter(o => o.status === 'delivered').reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-    const pendingValue = orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-
     // Potential bottleneck shipments (pending and older than 1 day or has delays/special notes)
     const criticalIssues = orders.filter(o => {
       const isAwaiting = o.status === 'pending' || o.status === 'processing';
@@ -90,9 +85,6 @@ export default function MorningReport({ orders, lang }: MorningReportProps) {
       cancelled,
       charashCount,
       talmidCount,
-      totalValue,
-      deliveredValue,
-      pendingValue,
       criticalIssues,
       successRate
     };
@@ -240,32 +232,6 @@ export default function MorningReport({ orders, lang }: MorningReportProps) {
               <p className={`text-xs font-black mt-1 ${stats.criticalIssues.length > 0 ? 'text-rose-600 animate-pulse' : 'text-slate-700'}`}>
                 {stats.criticalIssues.length} הזמנות
               </p>
-            </div>
-          </div>
-
-          {/* Privacy Switcher */}
-          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 mb-5">
-            <div className="flex items-start gap-3 justify-between">
-              <div className="flex items-center justify-center h-8 w-8 rounded-full bg-slate-100 text-slate-600 shrink-0">
-                {includeFinancials ? <Unlock className="h-4 w-4 text-emerald-600" /> : <Lock className="h-4 w-4 text-slate-500" />}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800">הצג שווי כספי בדוח</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={includeFinancials}
-                      onChange={(e) => setIncludeFinancials(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-8 h-4.5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-                <p className="text-[10px] text-slate-500 mt-1">
-                  החרגת מידע זה מונעת חשיפת שווי כספי בקבוצות תפעוליות של נהגים ומנהלים פשוטים.
-                </p>
-              </div>
             </div>
           </div>
         </div>

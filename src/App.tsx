@@ -1135,6 +1135,7 @@ export default function App() {
 
                   <OrderHistoryView
                     auditLogs={auditLogs}
+                    orders={orders}
                     lang={lang}
                     onSelectOrderNumber={(orderNum) => {
                       setSelectedOrderNumber(orderNum);
