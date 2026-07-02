@@ -1,9 +1,9 @@
 import { Order, OrderItem, OrderStatus, AppConfig } from '../types';
 
 /**
- * הכתובת המאוחדת של ה-Google Apps Script (יש להשתמש בה בכל הפונקציות)
+ * הכתובת המאוחדת של ה-Google Apps Script
  */
-const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwJGML9egm2-JKh1sh0UhLI-oCev1_Ek07eWJg77PqrKZLmeOYXBSJK_udoD3Tk5VM-CA/exec";
+export const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwJGML9egm2-JKh1sh0UhLI-oCev1_Ek07eWJg77PqrKZLmeOYXBSJK_udoD3Tk5VM-CA/exec";
 
 /**
  * Utility for parsing items string: "[SKU] Name - Qty"
