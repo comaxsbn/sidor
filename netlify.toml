@@ -1,0 +1,11 @@
+[[redirects]]
+  from = "/api/orders"
+  to = ":webappUrl"
+  status = 200
+  force = true
+  query = {webappUrl = ":webappUrl"}
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
