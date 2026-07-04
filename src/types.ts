@@ -26,6 +26,13 @@ export interface Order {
   latitude?: number;
   longitude?: number;
   driverName?: string;
+  depositStatusBags?: string;
+  depositStatusPallets?: string;
+  signatureDetected?: boolean;
+  ptoCorrelated?: boolean;
+  ptoDuration?: number;
+  deliveryDiscrepancy?: string;
+  splitCompleted?: boolean;
 }
 
 export interface MetricSummary {

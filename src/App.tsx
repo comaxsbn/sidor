@@ -30,6 +30,7 @@ import SettingsModal from './components/SettingsModal';
 import OrderHistoryView from './components/OrderHistoryView';
 import DashboardSkeleton from './components/DashboardSkeleton';
 import ShortcutsModal from './components/ShortcutsModal';
+import IntegrationsPortal from './components/IntegrationsPortal';
 
 import { 
   TrendingUp, 
@@ -57,7 +58,8 @@ import {
   Sun,
   Menu,
   X,
-  Keyboard
+  Keyboard,
+  Mail
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'motion/react';
@@ -72,7 +74,7 @@ export default function App() {
   const [config, setConfig] = useState<AppConfig>(getStoredConfig);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [lang, setLang] = useState<Language>('he');
-  const [currentTab, setCurrentTab] = useState<'dispatch' | 'analytics' | 'map' | 'noa-ai' | 'morning-report' | 'order-history'>('dispatch');
+  const [currentTab, setCurrentTab] = useState<'dispatch' | 'analytics' | 'map' | 'noa-ai' | 'morning-report' | 'order-history' | 'integrations'>('dispatch');
   const [selectedOrderNumber, setSelectedOrderNumber] = useState<string | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -689,6 +691,22 @@ export default function App() {
             <LayoutDashboard className="h-4.5 w-4.5 shrink-0" />
             <span>{isHe ? 'לוח סידור ראשי' : 'Dispatch Control'}</span>
           </button>
+
+          <button
+            id="sidebar-integrations-btn"
+            onClick={() => setCurrentTab('integrations')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+              currentTab === 'integrations'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/10'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Mail className="h-4.5 w-4.5 shrink-0" />
+              <span>{isHe ? 'סנכרון מיילים ואינטגרציות' : 'Email Sync & Ingestion'}</span>
+            </div>
+            <span className="flex h-2 w-2 rounded-full bg-indigo-400 animate-pulse shrink-0"></span>
+          </button>
           
           <button
             id="sidebar-analytics-btn"
@@ -1046,6 +1064,30 @@ export default function App() {
                 </div>
               )}
 
+              {currentTab === 'integrations' && (
+                <div className="space-y-4 animate-fade-in">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+                    <div>
+                      <h2 className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                        {isHe ? 'פורטל אימות, בקרה וסנכרון מיילים' : 'Email Sync & AI Ingestion Hub'}
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {isHe 
+                          ? 'ניטור ואימות אוטומטי של תעודות משולבות, התאמת כמויות, חישובי פקדון קומאקס והצלבת מנוף איתוראן.' 
+                          : 'AI-assisted processing of Comax ERP orders, PDF splitting, and correlation of vehicle PTO GPS telemetry.'}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <IntegrationsPortal
+                    orders={orders}
+                    auditLogs={auditLogs}
+                    lang={lang}
+                    onRefreshOrders={handleRefresh}
+                  />
+                </div>
+              )}
+
               {currentTab === 'analytics' && (
                 <div className="space-y-4 animate-fade-in">
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
@@ -1206,6 +1248,19 @@ export default function App() {
           >
             <LayoutDashboard className="h-4 w-4" />
             <span>{isHe ? 'לוח סידור' : 'Dispatch'}</span>
+          </button>
+
+          <button
+            id="mob-tab-integrations-btn"
+            onClick={() => setCurrentTab('integrations')}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[10px] font-bold transition-all ${
+              currentTab === 'integrations'
+                ? 'bg-indigo-50 text-indigo-600'
+                : 'text-slate-600'
+            }`}
+          >
+            <Mail className="h-4 w-4" />
+            <span>{isHe ? 'מיילים' : 'Inbox'}</span>
           </button>
 
           <button
