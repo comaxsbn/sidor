@@ -442,6 +442,9 @@ export default function IntegrationsPortal({ orders, auditLogs, lang, onRefreshO
   };
 
   const currentOrderForValidation = orders.find(o => o.orderNumber === selectedOrderNoForValidation);
+  const depositBags = currentOrderForValidation?.depositStatusBags || '';
+  const depositPallets = currentOrderForValidation?.depositStatusPallets || '';
+  const deliveryDiscrepancy = currentOrderForValidation?.deliveryDiscrepancy || '';
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-[600px] text-slate-800 dark:text-slate-100 font-sans" dir={isHe ? 'rtl' : 'ltr'}>
@@ -950,21 +953,21 @@ export default function IntegrationsPortal({ orders, auditLogs, lang, onRefreshO
                         <div className="flex justify-between items-center text-[11px]">
                           <span className="text-slate-500">{isHe ? 'שקי בלות פקדון:' : 'Bags Deposit:'}</span>
                           <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                            currentOrderForValidation.depositStatusBags?.includes('❌') 
+                            depositBags.includes('❌') 
                               ? 'bg-rose-50 text-rose-700 border border-rose-100' 
-                              : (currentOrderForValidation.depositStatusBags ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
+                              : (depositBags ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
                           }`}>
-                            {currentOrderForValidation.depositStatusBags || (isHe ? 'טרם נבדק' : 'Not Ingested')}
+                            {depositBags || (isHe ? 'טרם נבדק' : 'Not Ingested')}
                           </span>
                         </div>
                         <div className="flex justify-between items-center text-[11px]">
                           <span className="text-slate-500">{isHe ? 'משטחי עץ פקדון:' : 'Pallets Deposit:'}</span>
                           <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                            currentOrderForValidation.depositStatusPallets?.includes('❌') 
+                            depositPallets.includes('❌') 
                               ? 'bg-rose-50 text-rose-700 border border-rose-100' 
-                              : (currentOrderForValidation.depositStatusPallets ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
+                              : (depositPallets ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
                           }`}>
-                            {currentOrderForValidation.depositStatusPallets || (isHe ? 'טרם נבדק' : 'Not Ingested')}
+                            {depositPallets || (isHe ? 'טרם נבדק' : 'Not Ingested')}
                           </span>
                         </div>
                       </div>
@@ -985,11 +988,11 @@ export default function IntegrationsPortal({ orders, auditLogs, lang, onRefreshO
                         <div className="flex justify-between items-center text-[11px]">
                           <span className="text-slate-500">{isHe ? 'סטטוס כמויות:' : 'Discrepancy Stat:'}</span>
                           <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                            currentOrderForValidation.deliveryDiscrepancy?.includes('⚠️') 
+                            deliveryDiscrepancy.includes('⚠️') 
                               ? 'bg-rose-50 text-rose-700 border border-rose-100' 
-                              : (currentOrderForValidation.deliveryDiscrepancy ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
+                              : (deliveryDiscrepancy ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
                           }`}>
-                            {currentOrderForValidation.deliveryDiscrepancy || (isHe ? 'טרם הושווה' : 'Awaiting receipt')}
+                            {deliveryDiscrepancy || (isHe ? 'טרם הושווה' : 'Awaiting receipt')}
                           </span>
                         </div>
                       </div>
