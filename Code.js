@@ -369,49 +369,83 @@ function buildOrderPayload(row, colIndices, rowIndex) {
 }
 
 /**
- * Multi-line items string parser: Parses format "[SKU] Name - Qty"
+ * Multi-line items string parser: Parses format "[SKU] Name - Qty" or processes item arrays
  */
 function parseItemsString(itemsStr, rowIndex) {
   if (!itemsStr) return [];
-  
-  var lines = itemsStr.split(/[\n\r;]+/).map(function(line) {
+
+  if (Array.isArray(itemsStr)) {
+    return itemsStr.map(function(item, itemIdx) {
+      if (typeof item === 'object' && item !== null) {
+        var sku = String(item.sku || 'SBN-GEN-99').trim();
+        var name = String(item.name || 'פריט לוגיסטי').trim();
+        var price = Number(item.price) || PRODUCT_PRICES[sku] || 50;
+        var quantity = Number(item.quantity) || 1;
+        return {
+          id: item.id || ("item-" + rowIndex + "-" + itemIdx + "-" + sku),
+          sku: sku,
+          name: name,
+          price: price,
+          quantity: quantity
+        };
+      }
+      return parseSingleLineItem(String(item), rowIndex, itemIdx);
+    }).filter(function(i) { return i.name !== '[object Object]' && i.sku !== '[object Object]'; });
+  }
+
+  var str = String(itemsStr).trim();
+  if (str.indexOf('[object Object]') !== -1) {
+    str = str.replace(/\[object Object\]/g, '').trim();
+    if (!str) return [];
+  }
+
+  if (str.indexOf('[') === 0 && str.indexOf(']') === str.length - 1) {
+    try {
+      var parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) {
+        return parseItemsString(parsed, rowIndex);
+      }
+    } catch(e) {}
+  }
+
+  var lines = str.split(/[\n\r;]+/).map(function(line) {
     return line.trim();
   }).filter(function(line) {
     return line.length > 0;
   });
-  
+
   return lines.map(function(line, itemIdx) {
-    var sku = 'SBN-GEN-99';
-    var name = line;
-    var quantity = 1;
-    
-    // Match sku pattern in square brackets
-    var skuMatch = line.match(/^\[([^\]]+)\]/);
-    if (skuMatch) {
-      sku = skuMatch[1].trim();
-      name = line.substring(skuMatch[0].length).trim();
-    }
-    
-    // Match ending quantity number (e.g. " - 12", " 12", " x12", ": 12")
-    var qtyMatch = name.match(/(?:\s*[-xX:]\s*|\s+)(\d+)\s*$/);
-    if (qtyMatch) {
-      quantity = parseInt(qtyMatch[1], 10) || 1;
-      name = name.substring(0, qtyMatch.index).trim();
-    }
-    
-    // Clean trailing/leading separators
-    name = name.replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
-    
-    var price = PRODUCT_PRICES[sku] || 50;
-    
-    return {
-      id: "item-" + rowIndex + "-" + itemIdx + "-" + sku,
-      sku: sku,
-      name: name || 'פריט לוגיסטי',
-      price: price,
-      quantity: quantity
-    };
-  });
+    return parseSingleLineItem(line, rowIndex, itemIdx);
+  }).filter(function(i) { return i.name !== '[object Object]' && i.sku !== '[object Object]'; });
+}
+
+function parseSingleLineItem(line, rowIndex, itemIdx) {
+  var sku = 'SBN-GEN-99';
+  var name = line;
+  var quantity = 1;
+
+  var skuMatch = line.match(/^\[([^\]]+)\]/);
+  if (skuMatch) {
+    sku = skuMatch[1].trim();
+    name = line.substring(skuMatch[0].length).trim();
+  }
+
+  var qtyMatch = name.match(/(?:\s*[-xX:]\s*|\s+)(\d+)\s*$/);
+  if (qtyMatch) {
+    quantity = parseInt(qtyMatch[1], 10) || 1;
+    name = name.substring(0, qtyMatch.index).trim();
+  }
+
+  name = name.replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
+  var price = PRODUCT_PRICES[sku] || 50;
+
+  return {
+    id: "item-" + rowIndex + "-" + itemIdx + "-" + sku,
+    sku: sku,
+    name: name || 'פריט לוגיסטי',
+    price: price,
+    quantity: quantity
+  };
 }
 
 /**

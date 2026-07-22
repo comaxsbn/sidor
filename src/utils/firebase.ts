@@ -37,6 +37,29 @@ const safeGetTime = (timestamp: any): number => {
 };
 
 /**
+ * Recursively removes all `undefined` values from an object or array
+ * so that Firestore setDoc / writeBatch.set does not throw "Unsupported field value: undefined" error.
+ */
+function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    const cleanObj: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        cleanObj[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleanObj as T;
+  }
+  return data;
+}
+
+/**
  * Fetch all orders from Firebase Firestore, sorted by timestamp descending
  */
 export async function getOrdersFromFirestore(): Promise<Order[]> {
@@ -64,7 +87,8 @@ export async function getOrdersFromFirestore(): Promise<Order[]> {
 export async function saveOrderToFirestore(order: Order): Promise<void> {
   try {
     const orderRef = doc(db, ORDERS_COLLECTION, order.id);
-    await setDoc(orderRef, order, { merge: true });
+    const cleanOrder = sanitizeForFirestore(order);
+    await setDoc(orderRef, cleanOrder, { merge: true });
     console.log(`Successfully saved order ${order.orderNumber} to Firestore.`);
   } catch (error) {
     console.error(`Error saving order ${order.id} to Firestore:`, error);
@@ -76,13 +100,18 @@ export async function saveOrderToFirestore(order: Order): Promise<void> {
  * Save multiple orders to Firestore in batches (efficient for syncing)
  */
 export async function syncOrdersToFirestore(orders: Order[]): Promise<void> {
+  if (!orders || orders.length === 0) return;
   try {
-    const batch = writeBatch(db);
-    orders.forEach((order) => {
-      const orderRef = doc(db, ORDERS_COLLECTION, order.id);
-      batch.set(orderRef, order, { merge: true });
-    });
-    await batch.commit();
+    const chunkSize = 450;
+    for (let i = 0; i < orders.length; i += chunkSize) {
+      const chunk = orders.slice(i, i + chunkSize);
+      const batch = writeBatch(db);
+      chunk.forEach((order) => {
+        const orderRef = doc(db, ORDERS_COLLECTION, order.id);
+        batch.set(orderRef, sanitizeForFirestore(order), { merge: true });
+      });
+      await batch.commit();
+    }
     console.log(`Successfully synced ${orders.length} orders to Firestore.`);
   } catch (error) {
     console.error('Error syncing orders to Firestore:', error);
@@ -132,7 +161,8 @@ export async function getAuditLogsFromFirestore(): Promise<AuditLogEntry[]> {
 export async function saveAuditLogToFirestore(log: AuditLogEntry): Promise<void> {
   try {
     const logRef = doc(db, AUDIT_LOGS_COLLECTION, log.id);
-    await setDoc(logRef, log);
+    const cleanLog = sanitizeForFirestore(log);
+    await setDoc(logRef, cleanLog);
     console.log(`Successfully saved audit log ${log.id} to Firestore.`);
   } catch (error) {
     console.error(`Error saving audit log ${log.id} to Firestore:`, error);
@@ -144,13 +174,18 @@ export async function saveAuditLogToFirestore(log: AuditLogEntry): Promise<void>
  * Save multiple audit logs to Firestore in batches
  */
 export async function syncAuditLogsToFirestore(logs: AuditLogEntry[]): Promise<void> {
+  if (!logs || logs.length === 0) return;
   try {
-    const batch = writeBatch(db);
-    logs.forEach((log) => {
-      const logRef = doc(db, AUDIT_LOGS_COLLECTION, log.id);
-      batch.set(logRef, log, { merge: true });
-    });
-    await batch.commit();
+    const chunkSize = 450;
+    for (let i = 0; i < logs.length; i += chunkSize) {
+      const chunk = logs.slice(i, i + chunkSize);
+      const batch = writeBatch(db);
+      chunk.forEach((log) => {
+        const logRef = doc(db, AUDIT_LOGS_COLLECTION, log.id);
+        batch.set(logRef, sanitizeForFirestore(log), { merge: true });
+      });
+      await batch.commit();
+    }
     console.log(`Successfully synced ${logs.length} audit logs to Firestore.`);
   } catch (error) {
     console.error('Error syncing audit logs to Firestore:', error);

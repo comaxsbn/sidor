@@ -28,6 +28,7 @@ import { Order, OrderStatus, Language, AuditLogEntry } from '../types';
 import { translate, formatDate, MOCK_PRODUCTS } from '../utils/api';
 import { motion } from 'motion/react';
 import { QuickFilter } from './QuickFilter';
+import { DispatchTrendChart } from './DispatchTrendChart';
 
 interface DispatchTableProps {
   orders: Order[];
@@ -736,7 +737,10 @@ export default function DispatchTable({
 
   return (
     <div className="space-y-6">
-      
+
+      {/* 7-Day Dispatch Progression Line Chart */}
+      <DispatchTrendChart orders={orders} lang={lang} />
+
       {/* Advanced Floating Search and Filters Panel */}
       <div className="rounded-2xl border border-slate-200/60 bg-white/95 backdrop-blur-md p-6 shadow-md shadow-slate-100/80 hover:shadow-lg transition-all space-y-5 relative z-20">
         

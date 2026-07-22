@@ -120,8 +120,8 @@ const STORAGE_CONFIG_KEY = 'sabanos_config_v1';
 const STORAGE_ORDERS_KEY = 'sabanos_orders_v1';
 
 export function getStoredConfig(): AppConfig {
-  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
-  const OLD_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
+  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
+  const OLD_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxHm1GO0CNvCiTDoPwuLzPxFIzg5izfyLTH5lUP1OHu83tKUEEETtqTvZkXjan9By0UyQ/exec';
   const saved = localStorage.getItem(STORAGE_CONFIG_KEY);
   if (saved) {
     try {
@@ -370,50 +370,107 @@ export function createRandomOrder(lastOrderNum: string): Order {
 }
 
 /**
- * Elegant multi-line items string parser
- * Parses "[SKU] Name - Qty" format separated by newlines or semicolons
+ * Elegant multi-line items string or array parser
+ * Parses "[SKU] Name - Qty" format separated by newlines or semicolons, or normalizes item arrays
  */
-export function parseItemsString(itemsStr: string, orderIdx: number): OrderItem[] {
-  if (!itemsStr) return [];
-  
+export function parseItemsString(itemsInput: any, orderIdx: number): OrderItem[] {
+  if (!itemsInput) return [];
+
+  // Case 1: itemsInput is already an array of OrderItems or raw item objects
+  if (Array.isArray(itemsInput)) {
+    return itemsInput.map((item, itemIdx) => {
+      if (typeof item === 'object' && item !== null) {
+        const sku = String(item.sku || 'SBN-GEN-99').trim();
+        const rawName = String(item.name || 'פריט לוגיסטי').trim();
+        const matchingProduct = MOCK_PRODUCTS.find(p => p.sku.toLowerCase() === sku.toLowerCase() || p.name === rawName);
+        const finalName = matchingProduct?.name || rawName;
+        const finalPrice = Number(item.price) || matchingProduct?.price || 50;
+        const quantity = Number(item.quantity) || 1;
+
+        return {
+          id: item.id || `item-${orderIdx}-${itemIdx}-${sku}`,
+          sku: sku || 'SBN-GEN-99',
+          name: finalName || 'פריט לוגיסטי',
+          price: finalPrice,
+          quantity: quantity
+        };
+      }
+      if (typeof item === 'string') {
+        return parseSingleLineItem(item, orderIdx, itemIdx);
+      }
+      return {
+        id: `item-${orderIdx}-${itemIdx}-gen`,
+        sku: 'SBN-GEN-99',
+        name: 'פריט לוגיסטי',
+        price: 50,
+        quantity: 1
+      };
+    }).filter(i => i.name !== '[object Object]' && i.sku !== '[object Object]');
+  }
+
+  // Case 2: itemsInput is a string
+  let itemsStr = String(itemsInput).trim();
+
+  // If string contains '[object Object]', clean it up
+  if (itemsStr.includes('[object Object]')) {
+    itemsStr = itemsStr.replace(/\[object Object\]/g, '').trim();
+    if (!itemsStr) return [];
+  }
+
+  // If itemsStr looks like a JSON array string e.g. "[{\"sku\":\"...\"}]"
+  if (itemsStr.startsWith('[') && itemsStr.endsWith(']')) {
+    try {
+      const parsedJson = JSON.parse(itemsStr);
+      if (Array.isArray(parsedJson)) {
+        return parseItemsString(parsedJson, orderIdx);
+      }
+    } catch (e) {
+      // Not JSON, fall back to line parser
+    }
+  }
+
   // Split by newline or semicolon
   const lines = itemsStr.split(/[\n\r;]+/).map(line => line.trim()).filter(line => line.length > 0);
-  
-  return lines.map((line, itemIdx) => {
-    let sku = 'SBN-GEN-99';
-    let name = line;
-    let quantity = 1;
-    
-    // Extract SKU inside square brackets: e.g. [SBN-PL-01]
-    const skuMatch = line.match(/^\[([^\]]+)\]/);
-    if (skuMatch) {
-      sku = skuMatch[1].trim();
-      name = line.substring(skuMatch[0].length).trim();
-    }
-    
-    // Extract quantity from ending structure, supporting: " - 15", " 15", " x15", ": 15", etc.
-    const qtyMatch = name.match(/(?:\s*[-xX:]\s*|\s+)(\d+)\s*$/);
-    if (qtyMatch) {
-      quantity = parseInt(qtyMatch[1], 10) || 1;
-      name = name.substring(0, qtyMatch.index).trim();
-    }
-    
-    // Clean starting/trailing punctuations
-    name = name.replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
-    
-    // Enrich with exact product catalog details if they match
-    const matchingProduct = MOCK_PRODUCTS.find(p => p.sku.toLowerCase() === sku.toLowerCase() || p.name === name);
-    const finalName = matchingProduct?.name || name;
-    const finalPrice = matchingProduct?.price || 50;
-    
-    return {
-      id: `item-${orderIdx}-${itemIdx}-${sku}`,
-      sku,
-      name: finalName || 'פריט לוגיסטי',
-      price: finalPrice,
-      quantity,
-    };
-  });
+
+  return lines
+    .map((line, itemIdx) => parseSingleLineItem(line, orderIdx, itemIdx))
+    .filter(i => i.name !== '[object Object]' && i.sku !== '[object Object]');
+}
+
+function parseSingleLineItem(line: string, orderIdx: number, itemIdx: number): OrderItem {
+  let sku = 'SBN-GEN-99';
+  let name = line;
+  let quantity = 1;
+
+  // Extract SKU inside square brackets: e.g. [SBN-PL-01]
+  const skuMatch = line.match(/^\[([^\]]+)\]/);
+  if (skuMatch) {
+    sku = skuMatch[1].trim();
+    name = line.substring(skuMatch[0].length).trim();
+  }
+
+  // Extract quantity from ending structure, supporting: " - 15", " 15", " x15", ": 15", etc.
+  const qtyMatch = name.match(/(?:\s*[-xX:]\s*|\s+)(\d+)\s*$/);
+  if (qtyMatch) {
+    quantity = parseInt(qtyMatch[1], 10) || 1;
+    name = name.substring(0, qtyMatch.index).trim();
+  }
+
+  // Clean starting/trailing punctuations
+  name = name.replace(/^[-:\s]+|[-:\s]+$/g, '').trim();
+
+  // Enrich with exact product catalog details if they match
+  const matchingProduct = MOCK_PRODUCTS.find(p => p.sku.toLowerCase() === sku.toLowerCase() || p.name === name);
+  const finalName = matchingProduct?.name || name;
+  const finalPrice = matchingProduct?.price || 50;
+
+  return {
+    id: `item-${orderIdx}-${itemIdx}-${sku}`,
+    sku,
+    name: finalName || 'פריט לוגיסטי',
+    price: finalPrice,
+    quantity,
+  };
 }
 
 // Helper to extract Spreadsheet ID from a Google Sheets URL or ID
@@ -576,7 +633,19 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
         const customerName = String(row.customerName || row.customer || 'לקוח לא ידוע').trim();
         const warehouse = String(row.warehouse || 'מחסן החרש').trim();
         const deliveryAddress = String(row.deliveryAddress || row.address || '').trim();
-        const itemsRaw = String(row.items || row.itemsString || '').trim();
+        // Handle items properly without String(row.items) turning array into "[object Object]"
+        const rawItemsData = row.items || row.itemsString || row.itemsRawString || '';
+        const items = parseItemsString(rawItemsData, idx);
+
+        let itemsRawString = '';
+        if (typeof row.itemsRawString === 'string' && !row.itemsRawString.includes('[object Object]')) {
+          itemsRawString = row.itemsRawString;
+        } else if (typeof row.items === 'string' && !row.items.includes('[object Object]')) {
+          itemsRawString = row.items;
+        } else {
+          itemsRawString = items.map(i => `[${i.sku}] ${i.name} - ${i.quantity}`).join('\n');
+        }
+
         const statusRaw = String(row.status || 'pending').trim().toLowerCase();
         const modelUsed = String(row.modelUsed || row.model || '').trim();
         const tokens = Number(row.tokens) || 0;
@@ -588,7 +657,6 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
           ? (statusRaw as OrderStatus) 
           : 'pending';
 
-        const items = parseItemsString(itemsRaw, idx);
         const totalAmount = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
         return {
@@ -599,7 +667,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
           warehouse,
           deliveryAddress,
           items,
-          itemsRawString: itemsRaw,
+          itemsRawString,
           status,
           totalAmount,
           modelUsed,
@@ -623,7 +691,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
  * Update order status directly in the Google Sheet via Apps Script WebApp
  */
 export async function updateLiveOrderStatus(webappUrl: string | undefined, orderNumber: string, status: OrderStatus): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbza225J_4E113uth2A0_ZTUZoWF0wkPt6q0sLv4UZCgqKv8FUjv6TENI0nQooipQJV_/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
   if (!targetUrl) return false;
   
   try {
