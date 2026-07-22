@@ -140,7 +140,8 @@ async function startServer() {
       const response = await fetch(fetchUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
+        },
+        redirect: 'follow'
       });
       if (!response.ok) {
         throw new Error(`Google Sheets WebApp returned HTTP ${response.status}`);
@@ -149,10 +150,20 @@ async function startServer() {
       const trimmed = text.trim();
       
       if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
+        // Extract Apps Script error if present in HTML body
+        const gasErrorMatch = trimmed.match(/monospace;[^>]*>([^<]+)/i) || trimmed.match(/errorMessage[^>]*>([^<]+)/i);
+        const scriptDetail = gasErrorMatch && gasErrorMatch[1] ? gasErrorMatch[1].trim() : '';
+        
+        let errorMsg = "שגיאת הרשאות או הגדרה: הקישור שהוזן החזיר דף אינטרנט (HTML) במקום נתוני JSON. " +
+                       "ודא שה-WebApp של גוגל מוגדר לגישת 'Anyone' (כל אחד) ופורסם מחדש (Deploy -> New Deployment).";
+        
+        if (scriptDetail) {
+          errorMsg = `שגיאה בסקריפט גוגל (${scriptDetail}). יש להעתיק את הקוד המעודכן מ-Code.js ל-Apps Script ולבצע פריסה חדשה (Deploy -> New Deployment).`;
+        }
+
         return res.status(400).json({ 
           success: false, 
-          error: "שגיאת הרשאות או הגדרה: הקישור שהוזן החזיר דף אינטרנט (HTML) במקום נתוני JSON. " +
-                 "ודא שה-WebApp של גוגל מוגדר לגישת 'Anyone' (כל אחד) ופורסם מחדש (Deploy -> New Deployment)."
+          error: errorMsg
         });
       }
       

@@ -120,13 +120,18 @@ const STORAGE_CONFIG_KEY = 'sabanos_config_v1';
 const STORAGE_ORDERS_KEY = 'sabanos_orders_v1';
 
 export function getStoredConfig(): AppConfig {
-  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbxHm1GO0CNvCiTDoPwuLzPxFIzg5izfyLTH5lUP1OHu83tKUEEETtqTvZkXjan9By0UyQ/exec';
+  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
+  const OLD_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxHm1GO0CNvCiTDoPwuLzPxFIzg5izfyLTH5lUP1OHu83tKUEEETtqTvZkXjan9By0UyQ/exec';
   const saved = localStorage.getItem(STORAGE_CONFIG_KEY);
   if (saved) {
     try {
       const config = JSON.parse(saved);
+      let url = config.webappUrl || DEFAULT_URL;
+      if (url === OLD_DEFAULT_URL) {
+        url = DEFAULT_URL;
+      }
       return {
-        webappUrl: config.webappUrl || DEFAULT_URL,
+        webappUrl: url,
         mode: 'live', // Lock to live production stream
       };
     } catch (e) {
@@ -490,7 +495,7 @@ const safeToIsoString = (val: any): string => {
  * Fetch live spreadsheet data via Google Apps Script WebApp
  */
 export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbxHm1GO0CNvCiTDoPwuLzPxFIzg5izfyLTH5lUP1OHu83tKUEEETtqTvZkXjan9By0UyQ/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
   
   let rawList: any[] = [];
   try {
@@ -499,15 +504,16 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
     console.log(`Fetching orders via server-side proxy: ${proxyUrl}`);
     const response = await fetch(proxyUrl);
     if (!response.ok) {
+      let errorMsg = `Google Sheets Proxy returned HTTP ${response.status}`;
       try {
         const errJson = await response.json();
         if (errJson && errJson.error) {
-          throw new Error(errJson.error);
+          errorMsg = errJson.error;
         }
       } catch (parseErr) {
-        // Fallback to default message below if parsing fails
+        // Fallback to default message if parsing fails
       }
-      throw new Error(`Google Sheets Proxy returned HTTP ${response.status}`);
+      throw new Error(errorMsg);
     }
     const json = await response.json();
     
@@ -617,7 +623,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
  * Update order status directly in the Google Sheet via Apps Script WebApp
  */
 export async function updateLiveOrderStatus(webappUrl: string | undefined, orderNumber: string, status: OrderStatus): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbxHm1GO0CNvCiTDoPwuLzPxFIzg5izfyLTH5lUP1OHu83tKUEEETtqTvZkXjan9By0UyQ/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbza225J_4E113uth2A0_ZTUZoWF0wkPt6q0sLv4UZCgqKv8FUjv6TENI0nQooipQJV_/exec';
   if (!targetUrl) return false;
   
   try {
