@@ -120,7 +120,7 @@ const STORAGE_CONFIG_KEY = 'sabanos_config_v1';
 const STORAGE_ORDERS_KEY = 'sabanos_orders_v1';
 
 export function getStoredConfig(): AppConfig {
-  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
+  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyk1zm83bOdA_1H6qTPvoEX1k-NY3klb3YnfWngVFOlrAxnBy9P2Bf8BNnbcgaHkWZdOg/exec';
   const OLD_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbw1JO6lR7tqVFouqZvDGRx2VOWS2tcIJbtFdMCUQVAsrjIuZu5YLVoMmxoDPkhmWj5jyQ/exec';
   const saved = localStorage.getItem(STORAGE_CONFIG_KEY);
   if (saved) {
