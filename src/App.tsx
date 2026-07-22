@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   getStoredConfig, 
   saveStoredConfig, 
@@ -100,6 +100,136 @@ export default function App() {
   }, [darkMode]);
 
   const isHe = lang === 'he';
+
+  // Auto-Refresh state & context menu state
+  const [isAutoRefresh, setIsAutoRefresh] = useState<boolean>(() => {
+    return localStorage.getItem('sabanos_auto_refresh') === 'true';
+  });
+  const [refreshMenuOpen, setRefreshMenuOpen] = useState(false);
+  const refreshMenuRef = useRef<HTMLDivElement>(null);
+  const longPressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isLongPressActive = useRef(false);
+
+  // Sync auto-refresh preference
+  useEffect(() => {
+    localStorage.setItem('sabanos_auto_refresh', String(isAutoRefresh));
+  }, [isAutoRefresh]);
+
+  // Keep a mutable ref of handleRefresh to avoid recreation of interval
+  const handleRefreshRef = useRef<() => Promise<void>>(undefined);
+
+  // Close context menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (refreshMenuRef.current && !refreshMenuRef.current.contains(e.target as Node)) {
+        setRefreshMenuOpen(false);
+      }
+    };
+    const handleTouchOutside = (e: TouchEvent) => {
+      if (refreshMenuRef.current && !refreshMenuRef.current.contains(e.target as Node)) {
+        setRefreshMenuOpen(false);
+      }
+    };
+
+    if (refreshMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleTouchOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleTouchOutside);
+    };
+  }, [refreshMenuOpen]);
+
+  // Auto-Refresh interval
+  useEffect(() => {
+    if (!isAutoRefresh) return;
+
+    const interval = setInterval(() => {
+      if (handleRefreshRef.current) {
+        handleRefreshRef.current();
+      }
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [isAutoRefresh]);
+
+  const handleRefreshContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setRefreshMenuOpen(true);
+  };
+
+  const handleRefreshTouchStart = (e: React.TouchEvent) => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+    }
+    isLongPressActive.current = false;
+
+    longPressTimeoutRef.current = setTimeout(() => {
+      isLongPressActive.current = true;
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+      setRefreshMenuOpen(true);
+    }, 600);
+  };
+
+  const handleRefreshTouchEnd = (e: React.TouchEvent) => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+    if (isLongPressActive.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      isLongPressActive.current = false;
+    }
+  };
+
+  const handleRefreshTouchMove = () => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+  };
+
+  const handleRefreshMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    isLongPressActive.current = false;
+    longPressTimeoutRef.current = setTimeout(() => {
+      isLongPressActive.current = true;
+      setRefreshMenuOpen(true);
+    }, 600);
+  };
+
+  const handleRefreshMouseUp = (e: React.MouseEvent) => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+    if (isLongPressActive.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      isLongPressActive.current = false;
+    }
+  };
+
+  const handleRefreshMouseLeave = () => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+  };
+
+  const handleRefreshButtonClick = (e: React.MouseEvent) => {
+    if (isLongPressActive.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      isLongPressActive.current = false;
+      return;
+    }
+    handleRefresh();
+  };
 
   // Real-time synchronization of orders and audit logs
   useEffect(() => {
@@ -233,6 +363,10 @@ export default function App() {
       setIsRefreshing(false);
     }, 600);
   };
+
+  useEffect(() => {
+    handleRefreshRef.current = handleRefresh;
+  }, [handleRefresh]);
 
   // Update order status live in sheet
   const handleUpdateStatus = async (orderId: string, status: OrderStatus) => {
@@ -829,17 +963,63 @@ export default function App() {
           {/* Quick Actions */}
           <div className="flex items-center gap-2">
             {/* Refresh stream */}
-            <button
-              id="header-refresh-btn"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className={`flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all ${
-                isRefreshing ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-              title={isHe ? 'רענן נתונים' : 'Refresh Data'}
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
+            <div className="relative">
+              <button
+                id="header-refresh-btn"
+                onClick={handleRefreshButtonClick}
+                onContextMenu={handleRefreshContextMenu}
+                onMouseDown={handleRefreshMouseDown}
+                onMouseUp={handleRefreshMouseUp}
+                onMouseLeave={handleRefreshMouseLeave}
+                onTouchStart={handleRefreshTouchStart}
+                onTouchEnd={handleRefreshTouchEnd}
+                onTouchMove={handleRefreshTouchMove}
+                disabled={isRefreshing}
+                className={`relative flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white ${
+                  isRefreshing ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+                title={isHe ? 'רענן נתונים (לחיצה ארוכה או קליק ימני להפעלה אוטומטית)' : 'Refresh Data (Long-press or right-click for auto-refresh)'}
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isAutoRefresh && (
+                  <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                )}
+              </button>
+
+              {refreshMenuOpen && (
+                <div
+                  ref={refreshMenuRef}
+                  className={`absolute mt-2 ${isHe ? 'left-0' : 'right-0'} z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 w-56 text-slate-700 dark:text-slate-200 animate-in fade-in slide-in-from-top-1 duration-150`}
+                >
+                  <button
+                    onClick={() => {
+                      setIsAutoRefresh(!isAutoRefresh);
+                      setRefreshMenuOpen(false);
+                    }}
+                    className="flex items-center justify-between w-full px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${
+                        isAutoRefresh 
+                          ? 'bg-blue-600 border-blue-600 text-white' 
+                          : 'border-slate-300 dark:border-slate-600'
+                      }`}>
+                        {isAutoRefresh && (
+                          <svg className="h-3 w-3 fill-current text-white" viewBox="0 0 20 20">
+                            <path d="M0 11l2-2 5 5L18 3l2 2L7 18z" />
+                          </svg>
+                        )}
+                      </div>
+                      <span>{isHe ? 'רענון אוטומטי (60 שניות)' : 'Auto-Refresh (60s)'}</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">60s</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Language Toggle */}
             <button

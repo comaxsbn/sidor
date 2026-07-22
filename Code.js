@@ -83,6 +83,12 @@ function doGet(e) {
       return createJsonResponse({ success: success, orderNumber: orderNumber, status: newStatus }, callback);
     }
 
+    // Action: Setup Sheet & Full Headers
+    if (action === 'setupSheet' || action === 'initSheet') {
+      const setupResult = setupSheetAndHeaders();
+      return createJsonResponse(setupResult, callback);
+    }
+
     // Default or Explicit: Get Orders
     if (action && action !== 'getOrders') {
       return createJsonResponse({
@@ -555,4 +561,103 @@ function createJsonResponse(data, callback) {
     .setHeader('Access-Control-Allow-Origin', '*')
     .setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     .setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+/**
+ * Creates or resets the Google Sheet and writes standard full headers formatted matching SabanOS
+ */
+function setupSheetAndHeaders() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    var sheet = ss.getSheetByName(SHEET_NAME);
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEET_NAME);
+    }
+    
+    // Set Sheet Right-to-Left direction for Hebrew alignment
+    sheet.setRightToLeft(true);
+
+    // Full column headers matching SabanOS order schema
+    const headers = [
+      'תאריך',
+      'מספר הזמנה',
+      'שם לקוח',
+      'מחסן',
+      'כתובת אספקה',
+      'פריטים ותכולה',
+      'סטטוס',
+      'הערות',
+      'מודל AI',
+      'טוקנים',
+      'מזהה הודעה',
+      'קו רוחב (Latitude)',
+      'קו אורך (Longitude)'
+    ];
+
+    // Check if header row exists
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(headers);
+    } else {
+      // Overwrite header row 1 to guarantee full alignment and column index compatibility
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+
+    // Design & Formatting
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setBackground("#1E293B") // Dark Slate header matching SabanOS
+               .setFontColor("#FFFFFF")
+               .setFontWeight("bold")
+               .setFontFamily("Arial")
+               .setFontSize(11)
+               .setHorizontalAlignment("center")
+               .setVerticalAlignment("middle");
+
+    sheet.setRowHeight(1, 38);
+    sheet.setFrozenRows(1);
+
+    // Set column widths for best visual legibility
+    const colWidths = [150, 130, 160, 140, 220, 300, 110, 180, 120, 100, 140, 120, 120];
+    for (var col = 0; col < colWidths.length; col++) {
+      sheet.setColumnWidth(col + 1, colWidths[col]);
+    }
+
+    // Set Data Validation dropdown for Status column (Column 7)
+    const statusColIndex = 7; // 'סטטוס'
+    const statusRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['pending', 'processing', 'delivered', 'cancelled'], true)
+      .setAllowInvalid(true)
+      .build();
+      
+    sheet.getRange(2, statusColIndex, 1000, 1).setDataValidation(statusRule);
+
+    console.log("Sheet '" + SHEET_NAME + "' created and formatted successfully with " + headers.length + " headers.");
+
+    return {
+      success: true,
+      message: "Sheet '" + SHEET_NAME + "' created and formatted successfully with " + headers.length + " headers.",
+      headers: headers
+    };
+  } catch (error) {
+    console.error("Error setting up sheet headers: " + error.toString());
+    return {
+      success: false,
+      error: error.toString()
+    };
+  }
+}
+
+/**
+ * Automatically creates a custom menu in Google Sheets when opened
+ */
+function onOpen() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('SabanOS - ניהול לוגיסטי')
+      .addItem('🛠️ צור גליון וכותרות עמודים', 'setupSheetAndHeaders')
+      .addItem('🔄 סנכרן את כל ההזמנות ל-Firebase', 'syncSheetToFirebase')
+      .addToUi();
+  } catch (e) {
+    console.log("onOpen skipped (running outside UI context): " + e.toString());
+  }
 }

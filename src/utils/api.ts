@@ -37,8 +37,6 @@ const MOCK_ADDRESSES = [
 const MOCK_WAREHOUSES = [
   { he: 'מחסן החרש', en: 'HaCharash Warehouse' },
   { he: 'מחסן התלמיד', en: 'HaTalmid Warehouse' },
-  { he: 'מחסן שוהם לוגיסטיקה', en: 'Shoham Logistics Hub' },
-  { he: 'מחסן קיסריה צפון', en: 'Caesarea North Hub' },
 ];
 
 // Helper to generate random date in the last 7 days
