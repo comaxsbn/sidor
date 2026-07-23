@@ -4,1032 +4,989 @@ import {
   FileText, 
   CheckCircle2, 
   AlertTriangle, 
-  FileSignature, 
   Truck, 
   Cpu, 
   ShieldAlert,
-  ArrowRightLeft,
   Search,
-  Check,
-  Split,
   MapPin,
   Clock,
-  Play,
   RotateCcw,
   CloudLightning,
-  User,
   ExternalLink,
-  Info
+  Package,
+  Layers,
+  Sparkles,
+  ArrowUpRight,
+  Database,
+  FileCheck,
+  Send,
+  User as UserIcon,
+  LogOut,
+  Inbox,
+  Paperclip,
+  Check,
+  X,
+  MessageSquare,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Order, OrderItem, Language, AuditLogEntry } from '../types';
-import { saveOrderToFirestore, saveAuditLogToFirestore } from '../utils/firebase';
-import { formatDate, translate, MOCK_PRODUCTS } from '../utils/api';
+import { User } from 'firebase/auth';
+import { Order, Language, GmailMessage } from '../types';
+import { triggerProcessIncomingOrders, getLiveOrdersData, formatDate } from '../utils/api';
+import { initAuth, googleSignIn, logoutUser, getAccessToken } from '../utils/firebase';
+import { listGmailMessages, sendGmailMessage } from '../utils/gmail';
 
 interface IntegrationsPortalProps {
   orders: Order[];
-  auditLogs: AuditLogEntry[];
+  auditLogs?: any[];
   lang: Language;
   onRefreshOrders?: () => void;
 }
 
-interface SimulatedEmail {
-  id: string;
-  sender: string;
-  subject: string;
-  body: string;
-  timestamp: string;
-  type: 'order' | 'delivery_note' | 'ituran';
-  attachmentName?: string;
-  attachmentSize?: string;
-  processed: boolean;
-  linkedOrderNo?: string;
-}
-
-export default function IntegrationsPortal({ orders, auditLogs, lang, onRefreshOrders }: IntegrationsPortalProps) {
+export default function IntegrationsPortal({ orders: initialOrders, lang, onRefreshOrders }: IntegrationsPortalProps) {
   const isHe = lang === 'he';
-  const [selectedEmail, setSelectedEmail] = useState<SimulatedEmail | null>(null);
-  const [activeConsoleTab, setActiveConsoleTab] = useState<'ingestion' | 'split' | 'validation'>('ingestion');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [processingLog, setProcessingLog] = useState<string[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [simulationStatus, setSimulationStatus] = useState<string | null>(null);
+  const [orders, setOrders] = useState<Order[]>(initialOrders || []);
+  const [isLoadingOrders, setIsLoadingOrders] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncResult, setSyncResult] = useState<{
+    success: boolean;
+    message?: string;
+    processedCount?: number;
+    timestamp?: string;
+    error?: string;
+  } | null>(null);
 
-  // Selected order for the Validation Console
-  const [selectedOrderNoForValidation, setSelectedOrderNoForValidation] = useState<string>('');
-  
-  // Local states for signature status / verification
-  const [verificationFeedback, setVerificationFeedback] = useState<Record<string, {
-    signatureDetected: boolean;
-    ptoCorrelated: boolean;
-    ptoDuration: number;
-    discrepancy: string;
-  }>>({});
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState<string>('all');
 
-  // Simulated Inbox Emails
-  const [emails, setEmails] = useState<SimulatedEmail[]>([
-    {
-      id: 'em-001',
-      sender: 'comax-erp@sbn-logistics.co.il',
-      subject: 'הזמנת לקוח חדשה קומאקס - שופרסל בע"מ [SBN-10029]',
-      body: `מצורף קובץ הזמנה ממוחשב COMAX עבור שופרסל בע"מ.\nמספר הזמנה: SBN-10029\nכתובת אספקה: החרש 14, אזור התעשייה תל אביב\nמחסן הפצה: מחסן החרש\n\nפירוט פריטים:\n- שק גדול חול (כמות: 5)\n- שק גדול חצץ (כמות: 3)\n- [60002] שק גדול פקדון (כמות: 7)`,
-      timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 mins ago
-      type: 'order',
-      attachmentName: 'COMAX_Order_SBN-10029_shufersal.pdf',
-      attachmentSize: '245 KB',
-      processed: false,
-      linkedOrderNo: 'SBN-10029'
-    },
-    {
-      id: 'em-002',
-      sender: 'comax-erp@sbn-logistics.co.il',
-      subject: 'הזמנה חדשה מקומאקס - רמי לוי שיווק השקמה [SBN-10030]',
-      body: `קובץ PDF COMAX להזמנה SBN-10030 עבור סניף רמי לוי.\nכתובת: התלמיד 5, אזור תעשייה עטרות, ירושלים\nמחסן הפצה: מחסן התלמיד\n\nפירוט פריטים:\n- שק מלט 25 ק"ג (כמות: 12)\n- שק טיח (כמות: 8)\n- [60060] משטח סבן פקדון (כמות: 2)`,
-      timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 mins ago
-      type: 'order',
-      attachmentName: 'COMAX_Order_SBN-10030_ramilevy.pdf',
-      attachmentSize: '210 KB',
-      processed: false,
-      linkedOrderNo: 'SBN-10030'
-    },
-    {
-      id: 'em-003',
-      sender: 'delivery-system@sbn-logistics.co.il',
-      subject: 'תעודות משלוח משולבות לסידור הפצה - SBN-DELIV-COMBINED-03',
-      body: `מצורף קובץ תעודות משלוח משולב של נהגי חלוקה עבור הזמנות SBN-10029 ו-SBN-10030.\nיש לבצע חלוקה (Split), גיבוי ב-Google Drive, ואימות פריטים וחתימה.`,
-      timestamp: new Date(Date.now() - 35 * 60 * 1000).toISOString(), // 35 mins ago
-      type: 'delivery_note',
-      attachmentName: 'SBN_COMBINED_DELIVERY_NOTES_03.pdf',
-      attachmentSize: '1.2 MB',
-      processed: false
-    },
-    {
-      id: 'em-004',
-      sender: 'ituran-telemetry@ituran.co.il',
-      subject: 'התראת הפעלת מנוף משאית (PTO) - רכב 72-911-33 (נהג עלי)',
-      body: `מערכת איתוראן מדווחת על הפעלת מנוף פריקה (PTO ON):\nרכב: 72-911-33\nנהג: עלי\nמיקום: 32.0853, 34.7818 (סמוך לרחוב החרש 14, תל אביב)\nזמן הפעלה: ${new Date(Date.now() - 1 * 60 * 60 * 1000).toLocaleTimeString('he-IL')}\nמשך פעילות מנוף: 18 דקות.`,
-      timestamp: new Date(Date.now() - 45 * 60 * 1000).toISOString(), // 45 mins ago
-      type: 'ituran',
-      processed: false
-    },
-    {
-      id: 'em-005',
-      sender: 'ituran-telemetry@ituran.co.il',
-      subject: 'התראת הפעלת מנוף משאית (PTO) - רכב 88-302-14 (נהג יוסף)',
-      body: `מערכת איתוראן מדווחת על הפעלת מנוף פריקה (PTO ON):\nרכב: 88-302-14\nנהג: יוסף\nמיקום: 31.8540, 35.2105 (עטרות, ירושלים)\nזמן הפעלה: ${new Date(Date.now() - 2 * 60 * 60 * 1000).toLocaleTimeString('he-IL')}\nמשך פעילות מנוף: 25 דקות.`,
-      timestamp: new Date(Date.now() - 1.5 * 60 * 60 * 1000).toISOString(), // 1.5 hours ago
-      type: 'ituran',
-      processed: false
-    }
-  ]);
+  // Gmail OAuth Authentication State
+  const [user, setUser] = useState<User | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Handle setting selected order for validation dropdown
+  // Active Tab: 'orders' | 'gmail' | 'send_email'
+  const [activeTab, setActiveTab] = useState<'orders' | 'gmail' | 'send_email'>('orders');
+
+  // Live Gmail Inbox Messages
+  const [gmailMessages, setGmailMessages] = useState<GmailMessage[]>([]);
+  const [isLoadingGmail, setIsLoadingGmail] = useState<boolean>(false);
+  const [gmailQuery, setGmailQuery] = useState<string>('label:INBOX');
+  const [selectedGmailMessage, setSelectedGmailMessage] = useState<GmailMessage | null>(null);
+
+  // Email Compose State
+  const [emailTo, setEmailTo] = useState<string>('');
+  const [emailSubject, setEmailSubject] = useState<string>('');
+  const [emailBody, setEmailBody] = useState<string>('');
+  const [isSendingEmail, setIsSendingEmail] = useState<boolean>(false);
+  const [emailSendStatus, setEmailSendStatus] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Confirmation Modal for Sending Email (MANDATORY per Workspace Integration Guidelines)
+  const [showSendConfirmation, setShowSendConfirmation] = useState<boolean>(false);
+
+  // Initialize Firebase Auth listener
   useEffect(() => {
-    if (orders.length > 0 && !selectedOrderNoForValidation) {
-      // Find a pending/processing order to default to
-      const target = orders.find(o => o.status === 'pending' || o.status === 'processing') || orders[0];
-      setSelectedOrderNoForValidation(target?.orderNumber || '');
+    const unsubscribe = initAuth(
+      (authUser, token) => {
+        setUser(authUser);
+        setAccessToken(token);
+        setIsAuthLoading(false);
+      },
+      () => {
+        setUser(null);
+        setAccessToken(null);
+        setIsAuthLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Sync internal orders state with prop updates
+  useEffect(() => {
+    if (initialOrders && initialOrders.length > 0) {
+      setOrders(initialOrders);
     }
-  }, [orders, selectedOrderNoForValidation]);
+  }, [initialOrders]);
 
-  // Filter emails based on search
-  const filteredEmails = emails.filter(em => 
-    em.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    em.sender.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    em.body.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Load live orders on mount
+  useEffect(() => {
+    loadLiveOrders();
+  }, []);
 
-  // Run the Order Ingestion & Deposit Compliance Analysis
-  const handleIngestOrder = async (email: SimulatedEmail) => {
-    if (email.type !== 'order' || !email.linkedOrderNo) return;
-    
-    setIsProcessing(true);
-    setProcessingLog([]);
-    setActiveConsoleTab('ingestion');
+  // Fetch live Gmail messages whenever token or query changes
+  useEffect(() => {
+    if (accessToken && activeTab === 'gmail') {
+      fetchGmailInbox();
+    }
+  }, [accessToken, activeTab, gmailQuery]);
 
-    const logs = [
-      `[INFO] Starting parsing of email attachment: ${email.attachmentName}...`,
-      `[INFO] Target mailbox: comax.sbn@gmail.com`,
-      `[AI] Extracting text schema from PDF document...`,
-      `[AI] Order parsed successfully:`,
-      `   - Order Number: ${email.linkedOrderNo}`,
-      `   - Customer: ${email.linkedOrderNo === 'SBN-10029' ? 'שופרסל בע"מ' : 'רמי לוי שיווק השקמה'}`,
-      `   - Delivery Address: ${email.linkedOrderNo === 'SBN-10029' ? 'החרש 14, אזור התעשייה תל אביב' : 'התלמיד 5, אזור תעשייה עטרות, ירושלים'}`,
-      `[CALC] Initiating Deterministic Deposit compliance calculation:`
-    ];
-
-    setProcessingLog([...logs]);
-
-    // Perform Deposit Calculation
-    setTimeout(async () => {
-      let logUpdates = [...logs];
-      let bagStatus = '';
-      let palletStatus = '';
-      
-      let targetOrder = orders.find(o => o.orderNumber === email.linkedOrderNo);
-      
-      if (!targetOrder) {
-        // Fallback or create realistic order dynamically
-        const isSBN29 = email.linkedOrderNo === 'SBN-10029';
-        targetOrder = {
-          id: `live-ingest-${Date.now()}`,
-          orderNumber: email.linkedOrderNo || 'SBN-10029',
-          timestamp: new Date().toISOString(),
-          customerName: isSBN29 ? 'שופרסל בע"מ' : 'רמי לוי שיווק השקמה',
-          warehouse: isSBN29 ? 'מחסן החרש' : 'מחסן התלמיד',
-          deliveryAddress: isSBN29 ? 'החרש 14, אזור התעשייה תל אביב' : 'התלמיד 5, אזור תעשייה עטרות, ירושלים',
-          status: 'pending',
-          totalAmount: isSBN29 ? 1450 : 2100,
-          latitude: isSBN29 ? 32.0853 : 31.8540,
-          longitude: isSBN29 ? 34.7818 : 35.2105,
-          items: isSBN29 ? [
-            { id: 'item-1', name: 'שק גדול חול', quantity: 5, price: 150, sku: 'SBN-BAG-01' },
-            { id: 'item-2', name: 'שק גדול חצץ', quantity: 3, price: 180, sku: 'SBN-BAG-02' },
-            { id: 'deposit-bag', name: 'שק גדול פקדון', quantity: 7, price: 50, sku: '60002' }
-          ] : [
-            { id: 'item-1', name: 'שק מלט 25 ק"ג', quantity: 12, price: 40, sku: 'SBN-CMT-01' },
-            { id: 'item-2', name: 'שק טיח לוגיסטי', quantity: 8, price: 35, sku: 'SBN-PLST-02' },
-            { id: 'deposit-pallet', name: 'משטח סבן פקדון', quantity: 2, price: 85, sku: '60060' }
-          ]
-        };
+  const loadLiveOrders = async () => {
+    setIsLoadingOrders(true);
+    try {
+      const liveData = await getLiveOrdersData();
+      if (liveData && liveData.length > 0) {
+        setOrders(liveData);
       }
+    } catch (err) {
+      console.error('Error fetching live orders:', err);
+    } finally {
+      setIsLoadingOrders(false);
+    }
+  };
 
-      // Calculation logic
-      if (email.linkedOrderNo === 'SBN-10029') {
-        // Shufersal
-        // Total bags: 5 (hond) + 3 (chaz) = 8
-        // SKU 60002 has quantity 7
-        const totalBags = 8;
-        const depositQty = 7;
-        const diff = totalBags - depositQty;
-        bagStatus = `❌ חסר: ${diff}`;
-        
-        logUpdates.push(`   - Bags (בלות) calculation: Found 8 heavy bags (שק גדול) in items.`);
-        logUpdates.push(`   - Found SKU [60002] (שק גדול פקדון) with quantity: 7.`);
-        logUpdates.push(`   - Compliance check: 8 required vs 7 deposited.`);
-        logUpdates.push(`   - [RESULT] Deposit Mismatch -> ${bagStatus}`);
-        
-        palletStatus = `✅ תואם (0)`;
-        logUpdates.push(`   - Pallets (משטחים) calculation: No heavy pallets needed. Match -> ${palletStatus}`);
+  const handleGoogleLogin = async () => {
+    setAuthError(null);
+    setIsAuthLoading(true);
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        setUser(result.user);
+        setAccessToken(result.accessToken);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'התחברות באמצעות Google נכשלה');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logoutUser();
+    setUser(null);
+    setAccessToken(null);
+    setGmailMessages([]);
+  };
+
+  const fetchGmailInbox = async () => {
+    if (!accessToken) return;
+    setIsLoadingGmail(true);
+    try {
+      const msgs = await listGmailMessages(accessToken, gmailQuery, 15);
+      setGmailMessages(msgs);
+    } catch (err: any) {
+      console.error('Failed to load Gmail messages:', err);
+    } finally {
+      setIsLoadingGmail(false);
+    }
+  };
+
+  // Trigger processIncomingOrders via Google Apps Script Backend
+  const handleRunProcessIncomingOrders = async () => {
+    setIsSyncing(true);
+    setSyncResult(null);
+
+    try {
+      const result = await triggerProcessIncomingOrders();
+      setSyncResult(result);
+
+      // Refresh orders table immediately
+      await loadLiveOrders();
+      if (onRefreshOrders) {
+        onRefreshOrders();
+      }
+    } catch (err: any) {
+      setSyncResult({
+        success: false,
+        error: err.message || 'שגיאה בחיבור לשרת Google Apps Script'
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Execute Send Email after Explicit User Confirmation
+  const confirmAndSendEmail = async () => {
+    setShowSendConfirmation(false);
+    if (!accessToken) {
+      setEmailSendStatus({ success: false, message: 'נדרשת התחברות לחשבון Google כדי לשלוח מייל' });
+      return;
+    }
+
+    setIsSendingEmail(true);
+    setEmailSendStatus(null);
+
+    try {
+      const res = await sendGmailMessage(accessToken, {
+        to: emailTo,
+        subject: emailSubject,
+        body: emailBody
+      });
+
+      if (res.success) {
+        setEmailSendStatus({ success: true, message: `המייל נשלח בהצלחה דרך חשבון Gmail! מזהה: ${res.messageId}` });
+        setEmailTo('');
+        setEmailSubject('');
+        setEmailBody('');
       } else {
-        // Rami Levy
-        // Total heavy items: 12 (mement) + 8 (tiah) = 20 heavy items.
-        // Required pallets = ceil(20 / 10) = 2
-        // SKU 60060 quantity is 2
-        const totalHeavy = 20;
-        const reqPallets = Math.ceil(totalHeavy / 10); // 2
-        const depositQty = 2;
-        palletStatus = `✅ תואם (${depositQty})`;
-        
-        logUpdates.push(`   - Pallets (משטחים) calculation: Found 20 heavy bags (שק / 25 ק"ג) in items.`);
-        logUpdates.push(`   - Calculated required pallets: ceil(20 / 10) = 2.`);
-        logUpdates.push(`   - Found SKU [60060] (משטח סבן פקדון) with quantity: 2.`);
-        logUpdates.push(`   - [RESULT] Deposit Compliance matched -> ${palletStatus}`);
-        
-        bagStatus = `✅ תואם (0)`;
+        setEmailSendStatus({ success: false, message: res.error || 'שליחת המייל נכשלה' });
       }
-
-      // Update Order fields & save to Firebase Firestore
-      const updatedOrder: Order = {
-        ...targetOrder,
-        depositStatusBags: bagStatus,
-        depositStatusPallets: palletStatus,
-        status: 'processing' // update to processing during ingestion sync
-      };
-
-      try {
-        await saveOrderToFirestore(updatedOrder);
-        
-        // Save audit log
-        const newLog: AuditLogEntry = {
-          id: `audit-ingest-${email.linkedOrderNo}-${Date.now()}`,
-          orderId: updatedOrder.id,
-          orderNumber: updatedOrder.orderNumber,
-          customerName: updatedOrder.customerName,
-          oldStatus: 'pending',
-          newStatus: 'processing',
-          timestamp: new Date().toISOString(),
-          updatedBy: 'COMAX Ingestion Engine'
-        };
-        await saveAuditLogToFirestore(newLog);
-
-        logUpdates.push(`[FIREBASE] Synchronized updated order ${email.linkedOrderNo} with Firestore in real-time.`);
-        logUpdates.push(`[SUCCESS] Ingestion & Compliance check completed for ${email.linkedOrderNo}.`);
-        
-        // Mark email as processed
-        setEmails(prev => prev.map(em => em.id === email.id ? { ...em, processed: true } : em));
-        setProcessingLog([...logUpdates]);
-        setIsProcessing(false);
-        setSimulationStatus(isHe ? `הזמנה ${email.linkedOrderNo} נקלטה ועודכנה בסטטוס 'בטיפול'!` : `Order ${email.linkedOrderNo} successfully ingested and status set to 'In-Transit'!`);
-        
-        if (onRefreshOrders) {
-          onRefreshOrders();
-        }
-      } catch (err) {
-        logUpdates.push(`[ERROR] Failed to write to Firestore: ${err}`);
-        setProcessingLog([...logUpdates]);
-        setIsProcessing(false);
-      }
-    }, 2500);
+    } catch (err: any) {
+      setEmailSendStatus({ success: false, message: err.message || 'שגיאה בשליחת המייל' });
+    } finally {
+      setIsSendingEmail(false);
+    }
   };
 
-  // Run bulk Delivery Note PDF split
-  const handleSplitDeliveryNote = async (email: SimulatedEmail) => {
-    if (email.type !== 'delivery_note') return;
+  // Filter orders based on search & warehouse
+  const filteredOrders = orders.filter(o => {
+    const matchesSearch = 
+      o.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      o.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      o.deliveryAddress.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (o.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-    setIsProcessing(true);
-    setProcessingLog([]);
-    setActiveConsoleTab('split');
+    const matchesWarehouse = 
+      selectedWarehouseFilter === 'all' || o.warehouse === selectedWarehouseFilter;
 
-    const logs = [
-      `[INFO] Target document: ${email.attachmentName}`,
-      `[SPLIT] Initiating multi-page bulk PDF split pipeline...`,
-      `[AI] Visual Layout Analysis: Scanning pages for client boundaries...`,
-      `[AI] Page 1 detected boundary: customer "שופרסל בע"מ" (החרש 14, תל אביב)`,
-      `[AI] Page 2 detected boundary: customer "רמי לוי שיווק השקמה" (עטרות, ירושלים)`,
-      `[SPLIT] Creating individual customer delivery documents:`
-    ];
+    return matchesSearch && matchesWarehouse;
+  });
 
-    setProcessingLog([...logs]);
-
-    setTimeout(async () => {
-      let logUpdates = [...logs];
-      
-      const noteA = `SBN-10029_delivery_note_split_1.pdf`;
-      const noteB = `SBN-10030_delivery_note_split_2.pdf`;
-
-      logUpdates.push(`   - Generated document: ${noteA} (Customer: שופרסל בע"מ)`);
-      logUpdates.push(`   - Generated document: ${noteB} (Customer: רמי לוי)`);
-      logUpdates.push(`[DRIVE] Archiving documents on Google Drive: /SBN_Logistics/Customer_Archives/`);
-      logUpdates.push(`   - Uploaded: /SBN_Logistics/Customer_Archives/שופרסל/2026/${noteA} (ID: gd_file_x902)`);
-      logUpdates.push(`   - Uploaded: /SBN_Logistics/Customer_Archives/רמי_לוי/2026/${noteB} (ID: gd_file_z443)`);
-      
-      // Update linked orders with splitting status
-      const orderA = orders.find(o => o.orderNumber === 'SBN-10029');
-      const orderB = orders.find(o => o.orderNumber === 'SBN-10030');
-
-      try {
-        if (orderA) {
-          await saveOrderToFirestore({
-            ...orderA,
-            splitCompleted: true,
-            deliveryDiscrepancy: '⚠️ הפרש כמויות' // Shufersal has a missing bag of sand
-          });
-        }
-        if (orderB) {
-          await saveOrderToFirestore({
-            ...orderB,
-            splitCompleted: true,
-            deliveryDiscrepancy: '✅ תואם'
-          });
-        }
-
-        logUpdates.push(`[FIREBASE] Saved 'splitCompleted: true' back to matched orders in Firestore.`);
-        logUpdates.push(`[SUCCESS] Delivery Note bulk split completed. Individual documents archived securely.`);
-
-        setEmails(prev => prev.map(em => em.id === email.id ? { ...em, processed: true } : em));
-        setProcessingLog([...logUpdates]);
-        setIsProcessing(false);
-        setSimulationStatus(isHe ? `תעודות המשלוח פוצלו ונשמרו ב-Google Drive בהצלחה!` : `Delivery Notes split and archived to Google Drive successfully!`);
-
-        if (onRefreshOrders) {
-          onRefreshOrders();
-        }
-      } catch (err) {
-        logUpdates.push(`[ERROR] Save to database failed: ${err}`);
-        setProcessingLog([...logUpdates]);
-        setIsProcessing(false);
-      }
-    }, 2800);
-  };
-
-  // Run the Crane Telemetry & Signature Validation Pipeline
-  const handleRunValidationPipeline = async (email: SimulatedEmail) => {
-    if (email.type !== 'ituran') return;
-
-    setIsProcessing(true);
-    setProcessingLog([]);
-    setActiveConsoleTab('validation');
-
-    const isAli = email.body.includes('עלי');
-    const targetOrderNo = isAli ? 'SBN-10029' : 'SBN-10030';
-    const driverName = isAli ? 'עלי' : 'יוסף';
-
-    const logs = [
-      `[TELEMETRY] Initiating Ituran GPS PTO (Power Take-Off) correlation pipeline...`,
-      `[INFO] Processing Ituran Crane Activation Email: ${email.subject}`,
-      `[AI] Extracting GPS logs and Crane status:`,
-      `   - Driver/Vehicle: ${driverName} (${isAli ? '72-911-33' : '88-302-14'})`,
-      `   - Coordinates: ${isAli ? '32.0853, 34.7818' : '31.8540, 35.2105'}`,
-      `   - Signal: PTO turned ON`,
-      `[CORRELATION] Searching matching pending/processing deliveries in radius...`,
-      `   - Found target Order: ${targetOrderNo}`
-    ];
-
-    setProcessingLog([...logs]);
-
-    setTimeout(async () => {
-      let logUpdates = [...logs];
-      const targetOrder = orders.find(o => o.orderNumber === targetOrderNo);
-
-      if (!targetOrder) {
-        logUpdates.push(`[WARN] Target order ${targetOrderNo} not found in active database.`);
-        setProcessingLog([...logUpdates]);
-        setIsProcessing(false);
-        return;
-      }
-
-      // Calculate distance between Ituran Coordinates and Delivery Address coordinates
-      // Since we matched coordinates exactly in mock, we'll confirm 100m geofence validity
-      logUpdates.push(`[GPS] Geofence verified: Truck coordinates are within 45 meters of customer address.`);
-      logUpdates.push(`[TIME] Chronological Match: PTO active window matches estimated delivery timestamp.`);
-      logUpdates.push(`[RESULT] Crane Validation: 🏗️ פריקת מנוף מאושרת (Duration: ${isAli ? 18 : 25} mins)`);
-
-      // Signature Vision AI Simulation
-      logUpdates.push(`[VISION AI] Analyzing Split Delivery Note PDF signature block...`);
-      logUpdates.push(`   - Document: SBN_${targetOrderNo}_delivery_note.pdf`);
-      logUpdates.push(`   - Vision AI output: Handwritten signature / customer stamp DETECTED on receipt section.`);
-      logUpdates.push(`   - Signature check: ✍️ חתום (Verified)`);
-
-      try {
-        await saveOrderToFirestore({
-          ...targetOrder,
-          driverName: driverName,
-          signatureDetected: true,
-          ptoCorrelated: true,
-          ptoDuration: isAli ? 18 : 25,
-          status: 'delivered' // Auto-deliver upon crane and signature validation!
-        });
-
-        // Add Audit Log
-        const newLog: AuditLogEntry = {
-          id: `audit-validation-${targetOrderNo}-${Date.now()}`,
-          orderId: targetOrder.id,
-          orderNumber: targetOrder.orderNumber,
-          customerName: targetOrder.customerName,
-          oldStatus: 'processing',
-          newStatus: 'delivered',
-          timestamp: new Date().toISOString(),
-          updatedBy: 'Ituran Telemetry Engine'
-        };
-        await saveAuditLogToFirestore(newLog);
-
-        logUpdates.push(`[FIREBASE] Saved 'signatureDetected: true', 'ptoCorrelated: true', and 'status: delivered' to Firestore.`);
-        logUpdates.push(`[SUCCESS] Delivery verified with Crane telemetry & client signature successfully!`);
-
-        setEmails(prev => prev.map(em => em.id === email.id ? { ...em, processed: true } : em));
-        setProcessingLog([...logUpdates]);
-        setIsProcessing(false);
-        setSimulationStatus(isHe 
-          ? `המשלוח להזמנה ${targetOrderNo} אושר ונמסר בהצלחה באמצעות אימות מנוף איתוראן וחתימה!` 
-          : `Delivery for ${targetOrderNo} verified and delivered successfully via Ituran crane PTO telemetry and signature validation!`
-        );
-
-        if (onRefreshOrders) {
-          onRefreshOrders();
-        }
-      } catch (err) {
-        logUpdates.push(`[ERROR] Save to Firestore failed: ${err}`);
-        setProcessingLog([...logUpdates]);
-        setIsProcessing(false);
-      }
-    }, 2500);
-  };
-
-  const handleResetSimulator = () => {
-    setEmails(prev => prev.map(em => ({ ...em, processed: false })));
-    setSimulationStatus(isHe ? 'הסימולטור אופס מחדש בהצלחה!' : 'Simulator reset successfully!');
-  };
-
-  const currentOrderForValidation = orders.find(o => o.orderNumber === selectedOrderNoForValidation);
-  const depositBags = currentOrderForValidation?.depositStatusBags || '';
-  const depositPallets = currentOrderForValidation?.depositStatusPallets || '';
-  const deliveryDiscrepancy = currentOrderForValidation?.deliveryDiscrepancy || '';
+  // Calculate stats
+  const totalOrders = orders.length;
+  const noaVerifiedCount = orders.filter(o => !o.noaAnalysis || o.noaAnalysis.includes('✅') || o.noaAnalysis.includes('תואם')).length;
+  const totalDepositBales = orders.reduce((sum, o) => sum + (o.depositBales || 0), 0);
+  const totalDepositPallets = orders.reduce((sum, o) => sum + (o.depositPallets || 0), 0);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-[600px] text-slate-800 dark:text-slate-100 font-sans" dir={isHe ? 'rtl' : 'ltr'}>
+    <div className="space-y-6 text-slate-100 font-sans dir-rtl" dir="rtl">
       
-      {/* 1. GMAIL INBOX FEED (Left Column - Span 5) */}
-      <div className="xl:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm flex flex-col overflow-hidden">
-        {/* Inbox Header */}
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/40 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/40">
-              <Mail className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+      {/* Top Header Banner - Navy Blue & Electric Orange */}
+      <div className="bg-slate-900 border-r-4 border-orange-500 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative z-10">
+          <div>
+            <div className="flex items-center gap-3 mb-2 flex-wrap">
+              <span className="px-3 py-1 bg-orange-500/20 text-orange-400 border border-orange-500/30 text-xs font-bold rounded-full flex items-center gap-1.5">
+                <CloudLightning className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
+                SabanOS Gmail & Ingestion Engine
+              </span>
+              <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold rounded-full flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Google Workspace OAuth 2.0 מחובר
+              </span>
             </div>
+            
+            <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+              <Mail className="w-8 h-8 text-orange-500" />
+              אינטגרציית Gmail בלייב, חילוץ מסמכים וניתוח נועה
+            </h1>
+            <p className="text-slate-400 text-sm mt-1 max-w-3xl">
+              קליטת הזמנות בזמן אמת מחשבון ה-Gmail, חילוץ טקסט מ-PDF, הפעלת מנוע הפיקדונות הדיטרמיניסטי ושליחת הודעות עדכון ללקוחות ולנהגים במייל.
+            </p>
+          </div>
+
+          {/* User Auth Status / Google Sign-In */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+            {user ? (
+              <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-xl flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  {user.photoURL ? (
+                    <img src={user.photoURL} alt={user.displayName || 'Google User'} className="w-9 h-9 rounded-full border border-orange-500/50" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold">
+                      <UserIcon className="w-5 h-5" />
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-xs font-bold text-white truncate max-w-[150px]">{user.displayName || user.email}</div>
+                    <div className="text-[11px] text-emerald-400 font-mono">Gmail מחובר</div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleLogout}
+                  className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-700 rounded-lg transition-colors"
+                  title="התנתק מחשבון Google"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleGoogleLogin}
+                disabled={isAuthLoading}
+                className="gsi-material-button bg-white text-slate-900 font-bold px-5 py-3 rounded-xl shadow-lg hover:bg-slate-100 transition-all flex items-center justify-center gap-3 text-sm cursor-pointer border border-slate-300"
+              >
+                <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-5 h-5 shrink-0">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                </svg>
+                <span>התחבר עם Google (Gmail)</span>
+              </button>
+            )}
+
+            <button
+              onClick={handleRunProcessIncomingOrders}
+              disabled={isSyncing}
+              className="bg-orange-500 hover:bg-orange-600 active:bg-orange-700 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold px-5 py-3 rounded-xl shadow-lg shadow-orange-500/25 transition-all flex items-center justify-center gap-2 text-sm border border-orange-400/30 cursor-pointer shrink-0"
+            >
+              {isSyncing ? (
+                <>
+                  <RotateCcw className="w-4 h-4 animate-spin text-white" />
+                  <span>מעבד מיילים...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-amber-200" />
+                  <span>סנכרון מיילים חם</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {authError && (
+        <div className="bg-rose-500/15 border border-rose-500/40 p-4 rounded-xl text-rose-300 text-sm flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 shrink-0 text-rose-400" />
+          <span>{authError}</span>
+        </div>
+      )}
+
+      {/* Sync Status Feedback Console */}
+      <AnimatePresence>
+        {syncResult && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className={`p-5 rounded-xl border ${
+              syncResult.success 
+                ? 'bg-slate-900/90 border-emerald-500/50 text-emerald-200' 
+                : 'bg-slate-900/90 border-rose-500/50 text-rose-200'
+            } shadow-xl relative`}
+          >
+            <div className="flex items-start gap-4">
+              {syncResult.success ? (
+                <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1">
+                <h4 className="font-bold text-base text-white flex items-center justify-between">
+                  <span>{syncResult.success ? 'סנכרון מיילים ו-PDF הושלם בהצלחה!' : 'שגיאה בסנכרון מיילים'}</span>
+                  {syncResult.timestamp && (
+                    <span className="text-xs font-normal text-slate-400">
+                      {formatDate(syncResult.timestamp, isHe ? 'he' : 'en')}
+                    </span>
+                  )}
+                </h4>
+                <p className="text-sm mt-1 text-slate-300">
+                  {syncResult.message || syncResult.error}
+                </p>
+
+                {syncResult.processedCount !== undefined && syncResult.processedCount > 0 && (
+                  <div className="mt-3 bg-slate-950/80 p-3 rounded-lg border border-emerald-500/30 flex items-center justify-between">
+                    <span className="text-xs text-emerald-300 font-medium">
+                      נקלטו והוזרקו {syncResult.processedCount} הזמנות חדשות ללוח הסידור ולגיליון המרכזי
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
+                      16 עמודות הוזרקו
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Mode Switch Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+        <button
+          onClick={() => setActiveTab('orders')}
+          className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            activeTab === 'orders' 
+              ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' 
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>טבלת הזמנות מגיליון SabanOS</span>
+          <span className="px-2 py-0.5 text-xs rounded-full bg-slate-950/60 font-mono">
+            {orders.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('gmail')}
+          className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            activeTab === 'gmail' 
+              ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' 
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Inbox className="w-4 h-4" />
+          <span>תיבת Gmail בלייב</span>
+          {user && (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('send_email')}
+          className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            activeTab === 'send_email' 
+              ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' 
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Send className="w-4 h-4" />
+          <span>שליחת מייל עדכון (Gmail API)</span>
+        </button>
+      </div>
+
+      {/* TAB 1: Live Orders Table */}
+      {activeTab === 'orders' && (
+        <div className="space-y-6">
+          {/* Analytics KPI Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-2xl shadow-lg relative overflow-hidden">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">סה"כ הזמנות הפצה</p>
+                  <h3 className="text-3xl font-black text-white mt-2 tracking-tight">{totalOrders}</h3>
+                  <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                    <Database className="w-3.5 h-3.5 text-orange-400" />
+                    לוג הזמנות מערכת פעיל
+                  </p>
+                </div>
+                <div className="p-3 bg-slate-800 rounded-xl border border-slate-700 text-orange-400">
+                  <Layers className="w-6 h-6" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-2xl shadow-lg relative overflow-hidden">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">מאומתות נועה (AI)</p>
+                  <h3 className="text-3xl font-black text-emerald-400 mt-2 tracking-tight">{noaVerifiedCount}</h3>
+                  <p className="text-xs text-emerald-400/80 mt-1 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    פקדונות תואמים ללא כפל
+                  </p>
+                </div>
+                <div className="p-3 bg-slate-800 rounded-xl border border-slate-700 text-emerald-400">
+                  <FileCheck className="w-6 h-6" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-2xl shadow-lg relative overflow-hidden">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">פקדונות בלות (שק גדול)</p>
+                  <h3 className="text-3xl font-black text-orange-400 mt-2 tracking-tight">{totalDepositBales}</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    חישוב עדיפות מפורשת (מק"ט 60002)
+                  </p>
+                </div>
+                <div className="p-3 bg-slate-800 rounded-xl border border-slate-700 text-orange-400">
+                  <Package className="w-6 h-6" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-2xl shadow-lg relative overflow-hidden">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">פקדונות משטחים</p>
+                  <h3 className="text-3xl font-black text-amber-400 mt-2 tracking-tight">{totalDepositPallets}</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    חישוב עדיפות מפורשת (מק"ט 60060)
+                  </p>
+                </div>
+                <div className="p-3 bg-slate-800 rounded-xl border border-slate-700 text-amber-400">
+                  <Truck className="w-6 h-6" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Order Integration Table Section */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 bg-slate-950/60 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+              <div className="flex items-center gap-3">
+                <FileText className="w-5 h-5 text-orange-500" />
+                <h3 className="font-bold text-lg text-white">טבלת הזמנות חיה מגיליון Google Apps Script (16 עמודות)</h3>
+                <span className="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full border border-slate-700 font-mono">
+                  {filteredOrders.length} הזמנות
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="חפש הזמנה, לקוח, כתובת..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl pr-9 pl-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                  />
+                </div>
+
+                <select
+                  value={selectedWarehouseFilter}
+                  onChange={(e) => setSelectedWarehouseFilter(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-orange-500"
+                >
+                  <option value="all">כל המחסנים</option>
+                  <option value="מחסן החרש">מחסן החרש</option>
+                  <option value="מחסן התלמיד">מחסן התלמיד</option>
+                  <option value="מחסן עטרות">מחסן עטרות</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              {isLoadingOrders ? (
+                <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+                  <RotateCcw className="w-8 h-8 text-orange-500 animate-spin" />
+                  <p className="text-sm font-semibold text-slate-300">טוען נתוני אמת מהגיליון המרכזי...</p>
+                </div>
+              ) : filteredOrders.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+                  <Mail className="w-10 h-10 text-slate-600 mb-1" />
+                  <p className="text-base font-bold text-slate-300">לא נמצאו הזמנות תואמות</p>
+                  <p className="text-xs text-slate-500">לחץ על כפתור "סנכרון מיילים חם" כדי לשאוב הזמנות חדשות מג'ימייל</p>
+                </div>
+              ) : (
+                <table className="w-full text-right text-sm">
+                  <thead className="bg-slate-950 text-slate-400 text-xs font-bold uppercase tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="py-3.5 px-4">מספר הזמנה ותאריך</th>
+                      <th className="py-3.5 px-4">לקוח יעד וכתובת</th>
+                      <th className="py-3.5 px-4">מחסן הפצה</th>
+                      <th className="py-3.5 px-4">פריטים שחולצו (AI)</th>
+                      <th className="py-3.5 px-4 text-center">פקדונות מחושבים</th>
+                      <th className="py-3.5 px-4 text-center">אימות נועה (AI)</th>
+                      <th className="py-3.5 px-4 text-center">מסמך PDF</th>
+                      <th className="py-3.5 px-4 text-center">סטטוס הזרקה</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-medium">
+                    {filteredOrders.map((order) => {
+                      const isVerified = !order.noaAnalysis || order.noaAnalysis.includes('✅') || order.noaAnalysis.includes('תואם');
+                      const pdfUrl = (order as any).pdfUrl || (order.notes && order.notes.includes('PDF:') ? order.notes.match(/PDF:\s*(https?:\/\/[^\s]+)/)?.[1] : null);
+
+                      return (
+                        <tr key={order.id || order.orderNumber} className="hover:bg-slate-800/50 transition-colors">
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <div className="font-bold text-orange-400 text-base">{order.orderNumber}</div>
+                            <div className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                              <Clock className="w-3 h-3" />
+                              {formatDate(order.timestamp, isHe ? 'he' : 'en')}
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4">
+                            <div className="font-semibold text-white">{order.customerName}</div>
+                            <div className="text-xs text-slate-400 flex items-center gap-1 mt-0.5 max-w-xs truncate">
+                              <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
+                              <span>{order.deliveryAddress || 'לפי תעודת משלוח'}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                              {order.warehouse || 'מחסן החרש'}
+                            </span>
+                          </td>
+
+                          <td className="py-4 px-4 max-w-xs">
+                            <div className="space-y-1">
+                              {(order.items || []).slice(0, 3).map((item, idx) => (
+                                <div key={idx} className="text-xs text-slate-300 flex items-center justify-between gap-2 bg-slate-950/60 px-2 py-1 rounded border border-slate-800/80">
+                                  <span className="truncate">{item.name}</span>
+                                  <span className="font-bold text-orange-400 shrink-0">x{item.quantity}</span>
+                                </div>
+                              ))}
+                              {(order.items || []).length > 3 && (
+                                <div className="text-[11px] text-slate-500 font-medium">
+                                  + עוד {(order.items || []).length - 3} פריטים
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                              {(order.depositBales || 0) > 0 && (
+                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-orange-500/20 text-orange-300 border border-orange-500/40">
+                                  בלות: {order.depositBales}
+                                </span>
+                              )}
+                              {(order.depositPallets || 0) > 0 && (
+                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                  משטחים: {order.depositPallets}
+                                </span>
+                              )}
+                              {(order.depositDrums || 0) > 0 && (
+                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                                  חביות: {order.depositDrums}
+                                </span>
+                              )}
+                              {(!order.depositBales && !order.depositPallets && !order.depositDrums && !order.depositBlockPallets) && (
+                                <span className="text-xs text-slate-500 font-mono">ללא פקדון</span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            {isVerified ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>אימות נועה תואם</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                                <ShieldAlert className="w-3.5 h-3.5" />
+                                <span>חריגה - נדרשת בדיקה</span>
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            {pdfUrl ? (
+                              <a
+                                href={pdfUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs font-bold text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/30 transition-colors"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>צפה ב-PDF</span>
+                                <ArrowUpRight className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-xs text-slate-500 italic">נקלט ממייל</span>
+                            )}
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800 text-slate-200 border border-slate-700">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>הוזרק (16 עמודות)</span>
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: Live Gmail Inbox Viewer */}
+      {activeTab === 'gmail' && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl p-6 space-y-6">
+          {!user ? (
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-4 bg-slate-950/60 rounded-xl border border-slate-800">
+              <Mail className="w-12 h-12 text-orange-500" />
+              <h3 className="text-xl font-bold text-white">התחבר עם Gmail לצפייה ישירה בהודעות</h3>
+              <p className="text-sm text-slate-400 max-w-md">
+                התחבר באמצעות חשבון Google של הארגון כדי לצפות בהודעות דוא"ל נכנסות, לחלץ מסמכי PDF ולהתרשם מנתוני Gmail בזמן אמת.
+              </p>
+              <button
+                onClick={handleGoogleLogin}
+                className="bg-white hover:bg-slate-100 text-slate-900 font-bold px-6 py-3 rounded-xl shadow-lg transition-all flex items-center justify-center gap-3 text-sm cursor-pointer"
+              >
+                <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-5 h-5 shrink-0">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                </svg>
+                <span>התחבר באמצעות Google Sign-In</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                <div className="flex items-center gap-3">
+                  <Inbox className="w-5 h-5 text-orange-500" />
+                  <h3 className="font-bold text-lg text-white">תיבת Gmail נכנסת (מחובר: {user.email})</h3>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="שאילתת חיפוש Gmail (למשל: filename:pdf או סבן)"
+                    value={gmailQuery}
+                    onChange={(e) => setGmailQuery(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-orange-500 w-full sm:w-72"
+                  />
+                  <button
+                    onClick={fetchGmailInbox}
+                    disabled={isLoadingGmail}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 p-2.5 rounded-xl border border-slate-700 transition-colors"
+                    title="רענן תיבת מייל"
+                  >
+                    <RotateCcw className={`w-4 h-4 ${isLoadingGmail ? 'animate-spin text-orange-500' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {isLoadingGmail ? (
+                <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+                  <RotateCcw className="w-8 h-8 text-orange-500 animate-spin" />
+                  <p className="text-sm font-semibold text-slate-300">טוען הודעות מ-Gmail API...</p>
+                </div>
+              ) : gmailMessages.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 bg-slate-950/40 rounded-xl border border-slate-800">
+                  <Mail className="w-10 h-10 text-slate-600 mx-auto mb-2" />
+                  <p className="text-base font-bold text-slate-300">לא נמצאו הודעות דוא"ל מתאימות</p>
+                  <p className="text-xs text-slate-500">נסה לשנות את שאילתת החיפוש למעלה למשל: "label:INBOX"</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Messages List */}
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                    {gmailMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        onClick={() => setSelectedGmailMessage(msg)}
+                        className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                          selectedGmailMessage?.id === msg.id
+                            ? 'bg-slate-800 border-orange-500 shadow-md'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-2 mb-1">
+                          <span className="font-bold text-white text-sm truncate max-w-[220px]">
+                            {msg.from}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-mono shrink-0">
+                            {formatDate(msg.date, isHe ? 'he' : 'en')}
+                          </span>
+                        </div>
+                        <h4 className="font-semibold text-orange-400 text-xs truncate mb-1">
+                          {msg.subject}
+                        </h4>
+                        <p className="text-xs text-slate-400 line-clamp-2">
+                          {msg.snippet}
+                        </p>
+                        {msg.hasAttachments && (
+                          <div className="mt-2 flex items-center gap-1 text-[11px] text-amber-400 font-bold">
+                            <Paperclip className="w-3.5 h-3.5" />
+                            <span>מכיל קובץ מצורף (PDF/תמונה)</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Selected Message Preview Pane */}
+                  <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-5 relative">
+                    {selectedGmailMessage ? (
+                      <div className="space-y-4">
+                        <div className="border-b border-slate-800 pb-3">
+                          <span className="text-xs text-orange-400 font-mono">מזהה הודעה: {selectedGmailMessage.id}</span>
+                          <h3 className="text-lg font-bold text-white mt-1">{selectedGmailMessage.subject}</h3>
+                          <div className="text-xs text-slate-400 mt-1">
+                            <span className="font-semibold text-slate-300">מאת:</span> {selectedGmailMessage.from}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            <span className="font-semibold text-slate-300">בתאריך:</span> {selectedGmailMessage.date}
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-900 p-4 rounded-lg border border-slate-800 text-xs text-slate-300 whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
+                          {selectedGmailMessage.body || selectedGmailMessage.snippet}
+                        </div>
+
+                        {selectedGmailMessage.hasAttachments && (
+                          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-between">
+                            <span className="text-xs text-amber-300 font-medium flex items-center gap-1.5">
+                              <Paperclip className="w-4 h-4 text-amber-400" />
+                              מפתח קובצי PDF / נספחים זוהה להזמנה זו
+                            </span>
+                            <button
+                              onClick={handleRunProcessIncomingOrders}
+                              className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                            >
+                              עבד ב-SabanOS Backend
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-slate-500 text-center gap-2">
+                        <MessageSquare className="w-8 h-8 text-slate-600" />
+                        <p className="text-sm font-medium">בחר הודעה מהרשימה מימין לצפייה בתוכן המלא</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: Send Email via Gmail API (With Explicit User Confirmation) */}
+      {activeTab === 'send_email' && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl p-6 max-w-3xl mx-auto space-y-6">
+          <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+            <Send className="w-6 h-6 text-orange-500" />
             <div>
-              <h3 className="text-sm font-bold tracking-tight text-slate-800 dark:text-slate-200">
-                comax.sbn@gmail.com
-              </h3>
-              <p className="text-[10px] text-slate-400 font-medium">
-                {isHe ? 'תיבת סנכרון ואינטגרציה לוגיסטית' : 'Logistics Ingestion Mailbox'}
+              <h3 className="text-xl font-bold text-white">שליחת הודעת דוא"ל דרך Gmail API</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                שליחת הודעת עדכון / אישור הזמנה ללקוח או לנהג דרך חשבון Google המחובר
               </p>
             </div>
           </div>
-          <button
-            id="reset-simulator-btn"
-            onClick={handleResetSimulator}
-            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-xs"
-            title={isHe ? 'אפס סימולטור' : 'Reset Simulator'}
-          >
-            <RotateCcw className="h-3 w-3 text-slate-400" />
-            <span>{isHe ? 'איפוס' : 'Reset'}</span>
-          </button>
-        </div>
 
-        {/* Search */}
-        <div className="p-3 border-b border-slate-100 dark:border-slate-800/60 flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute right-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder={isHe ? 'חיפוש במיילים נכנסים...' : 'Search incoming emails...'}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-950 text-xs rounded-lg border border-slate-200 dark:border-slate-800 py-2 pl-3 pr-9 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-        </div>
-
-        {/* Email Feed List */}
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 max-h-[480px]">
-          {filteredEmails.length === 0 ? (
-            <div className="p-8 text-center text-slate-400">
-              <Mail className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-              <p className="text-xs">{isHe ? 'לא נמצאו מיילים תואמים' : 'No matching emails found'}</p>
+          {!user ? (
+            <div className="p-8 text-center text-slate-400 bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+              <p className="text-sm">יש להתחבר לחשבון Google כדי לעשות שימוש בשירות שליחת הודעות Gmail.</p>
+              <button
+                onClick={handleGoogleLogin}
+                className="bg-white hover:bg-slate-100 text-slate-900 font-bold px-5 py-2.5 rounded-xl text-sm transition-all inline-flex items-center gap-2 cursor-pointer"
+              >
+                <span>התחבר עם Google Sign-In</span>
+              </button>
             </div>
           ) : (
-            filteredEmails.map((email) => {
-              const isSelected = selectedEmail?.id === email.id;
-              return (
-                <div
-                  key={email.id}
-                  onClick={() => setSelectedEmail(email)}
-                  className={`p-4 cursor-pointer transition-all hover:bg-slate-50/80 dark:hover:bg-slate-800/20 flex flex-col gap-1.5 relative ${
-                    isSelected ? 'bg-indigo-50/40 dark:bg-indigo-950/10 border-r-4 border-indigo-600' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-400 tracking-wider">
-                      {email.sender}
-                    </span>
-                    <span className="text-[9px] font-mono text-slate-400">
-                      {new Date(email.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  נמען (כתובת דוא"ל):
+                </label>
+                <input
+                  type="email"
+                  placeholder="customer@example.com"
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-orange-500"
+                />
+              </div>
 
-                  <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-200 leading-snug flex items-center gap-1.5">
-                    {email.type === 'order' && <FileText className="h-3.5 w-3.5 text-indigo-500 shrink-0" />}
-                    {email.type === 'delivery_note' && <Split className="h-3.5 w-3.5 text-blue-500 shrink-0" />}
-                    {email.type === 'ituran' && <CloudLightning className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
-                    <span className="truncate">{email.subject}</span>
-                  </h4>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  נושא ההודעה:
+                </label>
+                <input
+                  type="text"
+                  placeholder='עדכון סטטוס הזמנה #10045 - סבן מוצרי נייר'
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-orange-500"
+                />
+              </div>
 
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                    {email.body}
-                  </p>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  תוכן ההודעה:
+                </label>
+                <textarea
+                  rows={6}
+                  placeholder="שלום רב, ההזמנה שלך יצאה לדרך עם הנהג משה. לפרטים נוספים ניתן ליצור קשר..."
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-orange-500 resize-none"
+                />
+              </div>
 
-                  <div className="flex items-center justify-between mt-1 pt-1.5 border-t border-slate-50 dark:border-slate-800/40">
-                    {email.attachmentName ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-50/70 dark:bg-indigo-950/20 px-2 py-0.5 rounded-full border border-indigo-100/40">
-                        <FileText className="h-3 w-3" />
-                        <span>{email.attachmentName}</span>
-                        <span className="text-slate-400 font-normal">({email.attachmentSize})</span>
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-slate-400 font-medium">
-                        {email.type === 'ituran' ? '⚙️ Ituran GPS Log' : '✉️ Text/HTML Body'}
-                      </span>
-                    )}
-
-                    {email.processed ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-full border border-emerald-100/40">
-                        <Check className="h-3 w-3" />
-                        <span>{isHe ? 'עובד' : 'Processed'}</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/20 px-2 py-0.5 rounded-full border border-amber-100/40">
-                        <span>{isHe ? 'ממתין' : 'Pending Ingest'}</span>
-                      </span>
-                    )}
-                  </div>
+              {/* Status Banner */}
+              {emailSendStatus && (
+                <div className={`p-4 rounded-xl text-xs font-medium border flex items-center gap-3 ${
+                  emailSendStatus.success 
+                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300' 
+                    : 'bg-rose-500/10 border-rose-500/40 text-rose-300'
+                }`}>
+                  {emailSendStatus.success ? <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" /> : <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400" />}
+                  <span>{emailSendStatus.message}</span>
                 </div>
-              );
-            })
+              )}
+
+              {/* Action Button - Triggers Confirmation Dialog */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  disabled={!emailTo || !emailSubject || !emailBody || isSendingEmail}
+                  onClick={() => setShowSendConfirmation(true)}
+                  className="bg-orange-500 hover:bg-orange-600 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition-all flex items-center gap-2 text-sm cursor-pointer border border-orange-400/30"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>שלח הודעה ב-Gmail</span>
+                </button>
+              </div>
+            </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* 2. REAL-TIME AI INGESTION & CORRELATION CONSOLE (Right Column - Span 7) */}
-      <div className="xl:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm flex flex-col overflow-hidden">
-        
-        {/* Banner of Status simulation feedback */}
-        {simulationStatus && (
-          <div className="bg-emerald-50 border-b border-emerald-100 text-emerald-800 px-4 py-2 text-xs flex items-center justify-between font-semibold animate-fade-in" dir={isHe ? 'rtl' : 'ltr'}>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <span>{simulationStatus}</span>
-            </div>
-            <button 
-              onClick={() => setSimulationStatus(null)}
-              className="text-emerald-500 hover:text-emerald-700 font-extrabold"
+      {/* MANDATORY Explicit User Confirmation Modal for Destructive/Sending Workspace Operations */}
+      <AnimatePresence>
+        {showSendConfirmation && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4"
             >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Selected Email Detailed Panel or Instruction */}
-        {!selectedEmail ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400">
-            <Cpu className="h-12 w-12 text-indigo-500 mb-3 animate-pulse" />
-            <h3 className="text-sm font-black text-slate-700 dark:text-slate-300">
-              {isHe ? 'אנא בחר אימייל מהתיבה כדי להתחיל' : 'Please select an email to begin'}
-            </h3>
-            <p className="text-xs text-slate-400 max-w-sm mt-1 leading-relaxed">
-              {isHe 
-                ? 'בחר מייל הזמנה מקומאקס, תעודת משלוח משולבת או קובץ איתוראן כדי להפעיל את מנוע ה-AI והטלמטריה בזמן אמת.' 
-                : 'Select a Comax order, delivery note or Ituran GPS log to trigger real-time AI compliance and telemetry correlations.'}
-            </p>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Active Email Title */}
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/10">
-              <div className="flex items-center justify-between mb-2">
-                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${
-                  selectedEmail.type === 'order' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                  selectedEmail.type === 'delivery_note' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                  'bg-emerald-50 text-emerald-700 border-emerald-200'
-                }`}>
-                  {selectedEmail.type}
-                </span>
-                <span className="text-xs text-slate-400 font-medium font-mono">
-                  Received: {new Date(selectedEmail.timestamp).toLocaleString('he-IL')}
-                </span>
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-orange-500/20 text-orange-400 rounded-xl border border-orange-500/30">
+                  <Send className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">אישור שליחת דוא"ל מחשבונך</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    האם אתה בטוח שברצונך לשלוח דוא"ל זה באמצעות Gmail API בשם החשבון המחובר?
+                  </p>
+                </div>
               </div>
-              <h2 className="text-sm font-black text-slate-900 dark:text-slate-100 leading-snug">
-                {selectedEmail.subject}
-              </h2>
-            </div>
 
-            {/* Ingestion & Split Tabs */}
-            <div className="flex border-b border-slate-100 dark:border-slate-800 text-xs">
-              <button
-                onClick={() => setActiveConsoleTab('ingestion')}
-                className={`flex-1 py-3 text-center font-bold border-b-2 transition-colors ${
-                  activeConsoleTab === 'ingestion'
-                    ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50/40 dark:bg-slate-800/10'
-                    : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/20'
-                }`}
-              >
-                {isHe ? 'קליטת הזמנה ופקדונות' : 'Order Ingestion & Deposits'}
-              </button>
-              <button
-                onClick={() => setActiveConsoleTab('split')}
-                className={`flex-1 py-3 text-center font-bold border-b-2 transition-colors ${
-                  activeConsoleTab === 'split'
-                    ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50/40 dark:bg-slate-800/10'
-                    : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/20'
-                }`}
-              >
-                {isHe ? 'פיצול תעודות והפרשים' : 'PDF Split & Discrepancies'}
-              </button>
-              <button
-                onClick={() => setActiveConsoleTab('validation')}
-                className={`flex-1 py-3 text-center font-bold border-b-2 transition-colors ${
-                  activeConsoleTab === 'validation'
-                    ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50/40 dark:bg-slate-800/10'
-                    : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/20'
-                }`}
-              >
-                {isHe ? 'אימות חתימה ואיתוראן' : 'Signature & Crane Correlator'}
-              </button>
-            </div>
-
-            {/* Tab Workspace Contents */}
-            <div className="flex-1 p-5 overflow-y-auto space-y-6">
-              
-              {/* TAB 1: ORDER INGESTION & DEPOSIT COMPLIANCE */}
-              {activeConsoleTab === 'ingestion' && (
-                <div className="space-y-4 animate-fade-in">
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/60 dark:bg-slate-800/20">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <Cpu className="h-3.5 w-3.5 text-indigo-500" />
-                      {isHe ? 'זיהוי וחלוקת פקדונות ממוחשבת קומאקס' : 'COMAX Deterministic Deposit Compliance Logic'}
-                    </h3>
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      {isHe 
-                        ? 'המערכת סורקת פריטי הזמנה ומחשבת אוטומטית פקדונות נדרשים:'
-                        : 'Analyzes item arrays and computes required deposits based on rigid business rules:'}
-                    </p>
-                    <ul className="mt-2 space-y-1.5 text-xs text-slate-600 dark:text-slate-300 leading-relaxed pl-1">
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-indigo-500 mt-0.5">📦</span>
-                        <div>
-                          <strong>{isHe ? 'שקי ענק (בלות):' : 'Bags (בלות):'}</strong>{' '}
-                          {isHe 
-                            ? 'חיבור כל הפריטים המכילים "שק גדול". נדרש חיוב תואם במקביל עבור מק"ט פקדון [60002] (שק גדול פקדון).'
-                            : 'Sum quantities of items containing "שק גדול". Compares against deposit SKU [60002].'}
-                        </div>
-                      </li>
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-indigo-500 mt-0.5">🪵</span>
-                        <div>
-                          <strong>{isHe ? 'משטחי עץ סבן:' : 'Wood Pallets:'}</strong>{' '}
-                          {isHe
-                            ? 'חיבור כל פריטי השקים הכבדים (מכילים "שק" או "25 ק"ג"). כמות המשטחים הנדרשת מחושבת לפי נוסחה: ceil(סה"כ פריטים / 10). נדרש חיוב במק"ט פקדון [60060].'
-                            : 'Sum quantities of heavy item SKU containing "שק" or "25 ק"ג". Required Pallets = ceil(TotalHeavyItems / 10). Matches against deposit SKU [60060].'}
-                        </div>
-                      </li>
-                    </ul>
-                  </div>
-
-                  {/* Trigger Pipeline Action */}
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-slate-500">
-                      {selectedEmail.type === 'order' ? (
-                        <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                          <Check className="h-3.5 w-3.5" />
-                          {isHe ? 'המייל מכיל קובץ הזמנה תקין לקליטה' : 'Email contains valid Comax Order PDF'}
-                        </span>
-                      ) : (
-                        <span className="text-amber-600 font-semibold flex items-center gap-1">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          {isHe ? 'לצורך קליטת הזמנה מומלץ לבחור מייל מסוג הזמנה' : 'For ingestion, select an Order email'}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      id="run-ingestion-btn"
-                      onClick={() => handleIngestOrder(selectedEmail)}
-                      disabled={isProcessing}
-                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black py-2.5 px-4 rounded-xl shadow-md shadow-indigo-500/10 cursor-pointer disabled:opacity-50 transition-all"
-                    >
-                      {isProcessing ? (
-                        <>
-                          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                          <span>{isHe ? 'מנתח קובץ קומאקס...' : 'Analyzing COMAX PDF...'}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3.5 w-3.5 fill-current" />
-                          <span>{isHe ? 'הפעלת מפענח קומאקס וחישוב פקדונות' : 'Run Ingestion & Deposit Pipeline'}</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+              <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 text-xs space-y-2">
+                <div>
+                  <span className="font-bold text-slate-400">אל:</span>{' '}
+                  <span className="text-white">{emailTo}</span>
                 </div>
-              )}
-
-              {/* TAB 2: PDF SPLITTING & QUANTITY DISCREPANCY */}
-              {activeConsoleTab === 'split' && (
-                <div className="space-y-4 animate-fade-in">
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/60 dark:bg-slate-800/20 space-y-2.5">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <Split className="h-3.5 w-3.5 text-blue-500" />
-                      {isHe ? 'מנגנון פיצול תעודות משולבות והפרש כמויות' : 'Combined PDF Splitting & Discrepancies'}
-                    </h3>
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      {isHe 
-                        ? 'נהגים חוזרים עם קובץ PDF המרכז מספר לקוחות יחד. המערכת מפצלת אותם למסמכים נפרדים, מגבה בתיקיית הלקוח המתאימה ב-Google Drive, ומשווה את הכמות שסופקה בפועל מול הזמנת המקור:'
-                        : 'Splits bulk combined driver receipts, uploads individual customer notes to Drive, and highlights physical vs ordered inventory mismatches:'}
-                    </p>
-                    <div className="grid grid-cols-2 gap-4 text-xs">
-                      <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-                        <span className="font-bold text-slate-600 dark:text-slate-300">SBN-10029 (שופרסל)</span>
-                        <div className="text-[10px] text-slate-400 mt-1">
-                          {isHe ? 'הוזמן: 5 שקי חול, 3 חצץ' : 'Ordered: 5 sand, 3 gravel'}
-                        </div>
-                        <div className="text-[10px] text-rose-500 font-bold mt-0.5">
-                          {isHe ? 'סופק: 4 שקי חול (נרשם ידנית)' : 'Note says: 4 sand (Handwritten)'}
-                        </div>
-                        <div className="text-[10px] bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded-full mt-1.5 inline-block font-bold">
-                          ⚠️ הפרש כמויות
-                        </div>
-                      </div>
-                      <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-                        <span className="font-bold text-slate-600 dark:text-slate-300">SBN-10030 (רמי לוי)</span>
-                        <div className="text-[10px] text-slate-400 mt-1">
-                          {isHe ? 'הוזמן: 12 מלט, 8 טיח' : 'Ordered: 12 cement, 8 plaster'}
-                        </div>
-                        <div className="text-[10px] text-emerald-500 font-bold mt-0.5">
-                          {isHe ? 'סופק: 12 מלט, 8 טיח (זהה)' : 'Delivered: 12 cement, 8 plaster (Identical)'}
-                        </div>
-                        <div className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full mt-1.5 inline-block font-bold">
-                          ✅ תואם
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Trigger Action */}
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-slate-500">
-                      {selectedEmail.type === 'delivery_note' ? (
-                        <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                          <Check className="h-3.5 w-3.5" />
-                          {isHe ? 'קובץ תעודות משלוח מוכן לפיצול' : 'Combined delivery receipt ready'}
-                        </span>
-                      ) : (
-                        <span className="text-amber-600 font-semibold flex items-center gap-1">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          {isHe ? 'מומלץ לבחור מייל תעודות משלוח משולב' : 'Select a delivery note email'}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      id="run-splitting-btn"
-                      onClick={() => handleSplitDeliveryNote(selectedEmail)}
-                      disabled={isProcessing}
-                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black py-2.5 px-4 rounded-xl shadow-md shadow-indigo-500/10 cursor-pointer disabled:opacity-50 transition-all"
-                    >
-                      {isProcessing ? (
-                        <>
-                          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                          <span>{isHe ? 'מפצל PDF ומאבחן הפרשים...' : 'Splitting & checking PDF...'}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3.5 w-3.5 fill-current" />
-                          <span>{isHe ? 'הפעלת פיצול והשוואת כמויות' : 'Run PDF Split & Discrepancy Engine'}</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                <div>
+                  <span className="font-bold text-slate-400">נושא:</span>{' '}
+                  <span className="text-orange-400 font-semibold">{emailSubject}</span>
                 </div>
-              )}
-
-              {/* TAB 3: SIGNATURE & PTO CRANE TELEMETRY CORRELATION */}
-              {activeConsoleTab === 'validation' && (
-                <div className="space-y-4 animate-fade-in">
-                  
-                  {/* Validation side by side panel specs */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Visual signature detection */}
-                    <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/40 dark:bg-slate-950/20">
-                      <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <FileSignature className="h-3.5 w-3.5 text-indigo-500" />
-                        {isHe ? 'זיהוי חתימה דיגיטלי (Vision AI)' : 'Vision AI Signature & Stamp'}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        {isHe 
-                          ? 'המערכת סורקת את קובץ ה-PDF המפוצל או ה-JPG ומזהה חותמות של מנהל עבודה או חתימה בכתב יד.'
-                          : 'Scans the split delivery note receipt and detects handwritten signature / foreman stamps.'}
-                      </p>
-                      <div className="mt-3.5 h-20 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg flex items-center justify-center relative overflow-hidden group">
-                        <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-indigo-50 text-[8px] font-black text-indigo-600 border border-indigo-100">
-                          SCAN AREA
-                        </div>
-                        <div className="text-center">
-                          <span className="text-xs text-slate-300 dark:text-slate-600 font-semibold font-mono border-2 border-dashed border-slate-200 dark:border-slate-800 p-2.5 rounded-lg">
-                            {isHe ? '✍️ זיהוי חתימה מופעל' : '✍️ Handwriting Scanner Live'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Ituran PTO specs */}
-                    <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/40 dark:bg-slate-950/20">
-                      <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <Truck className="h-3.5 w-3.5 text-blue-500" />
-                        {isHe ? 'הצלבת מנוף איתוראן (PTO)' : 'Ituran GPS PTO Correlation'}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        {isHe 
-                          ? 'קליטת אירוע PTO ON מאיתוראן ומעקב אחר פריקת הסחורה עם המנוף בטווח 100 מטר מכתובת הלקוח.'
-                          : 'Correlates Ituran PTO ON alerts inside a 100m geofence at client address to confirm crane unloading.'}
-                      </p>
-                      <div className="mt-3.5 h-20 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg flex items-center justify-center text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                          <span className="text-[10px] font-bold text-emerald-600">GEOFENCE COORD OK</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Trigger Action */}
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-slate-500">
-                      {selectedEmail.type === 'ituran' ? (
-                        <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                          <Check className="h-3.5 w-3.5" />
-                          {isHe ? 'התראת איתוראן מוכנה להצלבה' : 'Ituran alert ready for correlation'}
-                        </span>
-                      ) : (
-                        <span className="text-amber-600 font-semibold flex items-center gap-1">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          {isHe ? 'בחר מייל איתוראן כדי להצליב משלוח ומנוף' : 'Select an Ituran log to correlate'}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      id="run-validation-btn"
-                      onClick={() => handleRunValidationPipeline(selectedEmail)}
-                      disabled={isProcessing}
-                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black py-2.5 px-4 rounded-xl shadow-md shadow-indigo-500/10 cursor-pointer disabled:opacity-50 transition-all"
-                    >
-                      {isProcessing ? (
-                        <>
-                          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                          <span>{isHe ? 'מצליב נתוני GPS ומזהה חתימה...' : 'Correlating GPS & checking signature...'}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3.5 w-3.5 fill-current" />
-                          <span>{isHe ? 'הפעלת אימות מנוף איתוראן וחתימה' : 'Correlate Telemetry & Signatures'}</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                <div>
+                  <span className="font-bold text-slate-400">תוכן:</span>
+                  <p className="text-slate-300 mt-1 bg-slate-900 p-2 rounded border border-slate-800 line-clamp-3">
+                    {emailBody}
+                  </p>
                 </div>
-              )}
+              </div>
 
-              {/* LOGS TERMINAL CONTAINER (Always Visible when processing or logs exist) */}
-              {(isProcessing || processingLog.length > 0) && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Cpu className="h-3.5 w-3.5 text-indigo-500" />
-                    {isHe ? 'לוג הרצה ואימות בזמן אמת של מנועי ה-AI' : 'Real-Time AI Pipeline Run-Logs'}
-                  </h4>
-                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-[11px] text-slate-300 space-y-1.5 max-h-[220px] overflow-y-auto shadow-inner text-left" dir="ltr">
-                    {processingLog.map((logLine, idx) => {
-                      let textColor = 'text-slate-300';
-                      if (logLine.includes('[SUCCESS]')) textColor = 'text-emerald-400 font-bold';
-                      if (logLine.includes('[ERROR]')) textColor = 'text-rose-400 font-bold';
-                      if (logLine.includes('[AI]')) textColor = 'text-indigo-400';
-                      if (logLine.includes('[VISION')) textColor = 'text-purple-400';
-                      if (logLine.includes('[TELEMETRY]')) textColor = 'text-sky-400';
-                      if (logLine.includes('[CALC]')) textColor = 'text-amber-400';
-                      if (logLine.includes('❌')) textColor = 'text-rose-400 font-medium';
-                      if (logLine.includes('✅')) textColor = 'text-emerald-400 font-medium';
-                      
-                      return (
-                        <div key={idx} className={`${textColor} leading-relaxed`}>
-                          {logLine}
-                        </div>
-                      );
-                    })}
-                    {isProcessing && (
-                      <div className="text-indigo-400 font-bold animate-pulse flex items-center gap-2 mt-1">
-                        <span>●</span>
-                        <span>{isHe ? 'מריץ פעולות סימולציה...' : 'AI agents executing pipelines...'}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* REAL-TIME VALIDATION CHECKLIST & DISCREPANCY CONSOLE */}
-              {currentOrderForValidation && (
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 bg-slate-50/20 dark:bg-slate-950/20 space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-3">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <ShieldAlert className="h-4 w-4 text-indigo-500" />
-                      {isHe ? `קונסולת בקרה ואימות: הזמנה ${currentOrderForValidation.orderNumber}` : `Audit Console: Order ${currentOrderForValidation.orderNumber}`}
-                    </h3>
-                    <select
-                      value={selectedOrderNoForValidation}
-                      onChange={(e) => setSelectedOrderNoForValidation(e.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700 cursor-pointer shadow-xs focus:outline-none"
-                    >
-                      {orders.map(o => (
-                        <option key={o.id} value={o.orderNumber}>
-                          {o.orderNumber} - {translate(o.customerName, lang)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                    
-                    {/* Item A: Deposit Verification */}
-                    <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2">
-                      <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block">
-                        💰 {isHe ? 'בקרת הפקדת פקדונות' : 'Deposit Compliance'}
-                      </span>
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-slate-500">{isHe ? 'שקי בלות פקדון:' : 'Bags Deposit:'}</span>
-                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                            depositBags.includes('❌') 
-                              ? 'bg-rose-50 text-rose-700 border border-rose-100' 
-                              : (depositBags ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
-                          }`}>
-                            {depositBags || (isHe ? 'טרם נבדק' : 'Not Ingested')}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-slate-500">{isHe ? 'משטחי עץ פקדון:' : 'Pallets Deposit:'}</span>
-                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                            depositPallets.includes('❌') 
-                              ? 'bg-rose-50 text-rose-700 border border-rose-100' 
-                              : (depositPallets ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
-                          }`}>
-                            {depositPallets || (isHe ? 'טרם נבדק' : 'Not Ingested')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Item B: Delivery Discrepancies */}
-                    <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2">
-                      <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block">
-                        📊 {isHe ? 'התאמת פריטים (הפרשים)' : 'Delivery Discrepancies'}
-                      </span>
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-slate-500">{isHe ? 'תעודה פוצלה:' : 'Split Completed:'}</span>
-                          <span className={`font-bold text-[10px] ${currentOrderForValidation.splitCompleted ? 'text-emerald-600' : 'text-slate-400'}`}>
-                            {currentOrderForValidation.splitCompleted ? (isHe ? 'כן' : 'Yes') : (isHe ? 'לא' : 'No')}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-slate-500">{isHe ? 'סטטוס כמויות:' : 'Discrepancy Stat:'}</span>
-                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                            deliveryDiscrepancy.includes('⚠️') 
-                              ? 'bg-rose-50 text-rose-700 border border-rose-100' 
-                              : (deliveryDiscrepancy ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500')
-                          }`}>
-                            {deliveryDiscrepancy || (isHe ? 'טרם הושווה' : 'Awaiting receipt')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Item C: Telemetry & Signature */}
-                    <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2">
-                      <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider block">
-                        🏗️ {isHe ? 'איתוראן וחתימה' : 'Telemetry & Signature'}
-                      </span>
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-slate-500">{isHe ? 'זיהוי חתימה:' : 'Signature:'}</span>
-                          <span className={`font-bold text-[10px] ${currentOrderForValidation.signatureDetected ? 'text-emerald-600' : 'text-slate-400'}`}>
-                            {currentOrderForValidation.signatureDetected ? '✍️ החתימה זוהתה' : (isHe ? 'לא זוהה' : 'Not detected')}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-slate-500">{isHe ? 'אימות מנוף איתוראן:' : 'Ituran PTO Sync:'}</span>
-                          <span className={`font-bold text-[10px] ${currentOrderForValidation.ptoCorrelated ? 'text-emerald-600' : 'text-slate-400'}`}>
-                            {currentOrderForValidation.ptoCorrelated 
-                              ? `🏗️ פריקה מאושרת (${currentOrderForValidation.ptoDuration || 18} דק)` 
-                              : (isHe ? 'לא מופעל' : 'Not correlated')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                  </div>
-                </div>
-              )}
-
-            </div>
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSendConfirmation(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors"
+                >
+                  ביטול
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmAndSendEmail}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 border border-orange-400/30 shadow-lg shadow-orange-500/20 transition-all flex items-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>מאשר שליחה כעת</span>
+                </button>
+              </div>
+            </motion.div>
           </div>
         )}
+      </AnimatePresence>
 
-      </div>
     </div>
   );
 }
+

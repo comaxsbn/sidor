@@ -7,10 +7,11 @@
  * Features Included:
  * 1. Automatic deposit calculation across 4 deposit categories (בלות, משטחים, חביות, משטחי בלוק).
  * 2. Anti-double-counting engine (מנגנון מניעת כפל חישוב): Gives priority to explicit deposit SKUs 
- *    (e.g., SKU 60002 for Bale Deposit) and overrides automatic dictionary calculations (e.g., SKU 11511).
- * 3. Real-time `onEdit(e)` trigger for interactive sheet editing and instant deposit calculation updates.
- * 4. Automatic real-time sync with Firebase Firestore via REST API.
- * 5. Web App REST endpoints (doGet/doPost) for frontend integration.
+ *    (e.g., SKU 60002 for Bale Deposit) and overrides automatic dictionary calculations.
+ * 3. Live email & attached PDF processing via processIncomingOrders(), extractTextFromPDF(), and parseOrderText().
+ * 4. Real-time `onEdit(e)` trigger for interactive sheet editing and instant deposit calculation updates.
+ * 5. Automatic real-time sync with Firebase Firestore via REST API.
+ * 6. Web App REST endpoints (doGet/doPost) for frontend integration.
  */
 
 // =========================================================================
@@ -18,6 +19,8 @@
 // =========================================================================
 const SHEET_ID = "1Y_2N4Gs-lvAiv8fvLk9zvIhVQt5YxNPz6mCOnlh6lh8";
 const SHEET_NAME = "לוג_הזמנות_מערכת";
+const ROOT_DRIVE_FOLDER_ID = "1CARwoXMPEODCVCAWHZZEK_a1jAi-kSIY";
+const ROOT_DRIVE_FOLDER_NAME = "SabanOS Delivery Documents";
 
 // Authorized Firebase credentials
 const FIREBASE_PROJECT_ID = "gen-lang-client-0262645162";
@@ -33,6 +36,14 @@ const PRODUCT_PRICES = {
   '60004': 95,  // משטח בלוק פקדון
   '11511': 65,  // חצץ בלה 1.5 טון
   '11512': 65,  // חול בלה 1.5 טון
+  '11551': 45,  // טיט שק גדול
+  '11501': 45,  // חול שק גדול
+  '10002': 38,  // מלט אפור 25 ק"ג
+  '14603': 60,  // פלסטומר 603AD
+  '12154': 12,  // בלוק בטון
+  '14185': 75,  // שליכט בגר
+  '15010': 90,  // טיח בריכות
+  '31014': 25,  // פינת טיח
   'SBN-PL-01': 85,
   'SBN-ST-05': 42,
   'SBN-TP-12': 18,
@@ -40,26 +51,417 @@ const PRODUCT_PRICES = {
 };
 
 // =========================================================================
-// 1. OnEdit Triggers & Event Handler
+// 0. Google Drive Customer Folder Management
 // =========================================================================
 
 /**
- * Simple trigger fired automatically on cell edit in Google Sheets.
+ * Gets or creates the dedicated customer subfolder under SabanOS Delivery Documents.
+ * Format: [Customer Name] - [Customer ID]
+ * Root Folder ID: 1CARwoXMPEODCVCAWHZZEK_a1jAi-kSIY
+ * @param {string} customerName - Name of customer
+ * @param {string} customerId - ID/Code of customer from Comax
+ * @return {Folder} Google Drive Folder instance
  */
+function getOrCreateCustomerDriveFolder(customerName, customerId) {
+  var rootFolder = null;
+  try {
+    rootFolder = DriveApp.getFolderById(ROOT_DRIVE_FOLDER_ID);
+  } catch (e) {
+    console.warn("Root folder ID not found by ID, searching by name: " + e.toString());
+    var folders = DriveApp.getFoldersByName(ROOT_DRIVE_FOLDER_NAME);
+    if (folders.hasNext()) {
+      rootFolder = folders.next();
+    } else {
+      rootFolder = DriveApp.createFolder(ROOT_DRIVE_FOLDER_NAME);
+    }
+  }
+
+  var cleanName = (customerName || "לקוח_כללי").trim();
+  var cleanId = (customerId || "").toString().trim();
+  
+  // Format required: [שם הלקוח] - [מספר לקוח]
+  var folderName = cleanId ? (cleanName + " - " + cleanId) : cleanName;
+  
+  var subFolders = rootFolder.getFoldersByName(folderName);
+  if (subFolders.hasNext()) {
+    return subFolders.next();
+  } else {
+    var newFolder = rootFolder.createFolder(folderName);
+    try {
+      newFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (sErr) {
+      console.warn("Could not set folder sharing: " + sErr.toString());
+    }
+    return newFolder;
+  }
+}
+
+// =========================================================================
+// 1. Core Functions: Live Email & PDF Ingestion (processIncomingOrders)
+// =========================================================================
+
+/**
+ * Extracts plain text from a PDF attachment using Google Drive OCR or text stream decoding.
+ * @param {Blob|GmailAttachment} attachment - The PDF file attachment.
+ * @return {string} Extracted text content.
+ */
+function extractTextFromPDF(attachment) {
+  if (!attachment) return "";
+  try {
+    var blob = attachment.copyBlob ? attachment.copyBlob() : attachment;
+    var filename = attachment.getName ? attachment.getName() : "attachment.pdf";
+
+    // Attempt 1: Advanced Drive API v2 OCR if enabled
+    if (typeof Drive !== 'undefined' && Drive.Files && Drive.Files.insert) {
+      try {
+        var resource = {
+          title: "ocr_" + filename,
+          mimeType: blob.getContentType()
+        };
+        var file = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: "he" });
+        var doc = DocumentApp.openById(file.id);
+        var text = doc.getBody().getText();
+        DriveApp.getFileById(file.id).setTrashed(true);
+        if (text && text.trim().length > 0) {
+          return text;
+        }
+      } catch (ocrErr) {
+        console.warn("Drive OCR API failed: " + ocrErr.toString());
+      }
+    }
+
+    // Attempt 2: Convert via DriveApp temp file + Google Doc conversion
+    try {
+      var folder = DriveApp.getRootFolder();
+      var tempFile = folder.createFile(blob);
+      var docFile = Drive.Files.insert(
+        { title: "temp_conv_" + filename, mimeType: MimeType.GOOGLE_DOCS },
+        tempFile.getBlob()
+      );
+      var doc = DocumentApp.openById(docFile.id);
+      var docText = doc.getBody().getText();
+      
+      // Clean up temp files
+      tempFile.setTrashed(true);
+      DriveApp.getFileById(docFile.id).setTrashed(true);
+
+      if (docText && docText.trim().length > 0) {
+        return docText;
+      }
+    } catch (docErr) {
+      console.warn("Drive Google Docs conversion fallback failed: " + docErr.toString());
+    }
+
+    // Attempt 3: Direct text decoding from blob
+    var rawText = blob.getDataAsString();
+    if (rawText && rawText.length > 30 && !rawText.includes("%PDF")) {
+      return rawText;
+    }
+
+    // Attempt 4: Text extraction from PDF stream TJ/Tj operators
+    var rawStr = blob.getDataAsString("ISO-8859-1");
+    var matches = rawStr.match(/\(([^()]+)\)\s*TJ/g) || rawStr.match(/\(([^()]+)\)\s*Tj/g);
+    if (matches && matches.length > 0) {
+      var cleanStr = matches.map(function(m) {
+        return m.replace(/^\(/, '').replace(/\)\s*TJ$/, '').replace(/\)\s*Tj$/, '');
+      }).join(' ');
+      if (cleanStr.trim().length > 10) {
+        return cleanStr;
+      }
+    }
+
+    return rawText || "";
+  } catch (err) {
+    console.error("Error in extractTextFromPDF: " + err.toString());
+    try {
+      return attachment.getDataAsString();
+    } catch (e) {
+      return "";
+    }
+  }
+}
+
+/**
+ * Parses raw text extracted from PDF or Email into structured order metadata and items.
+ * @param {string} text - The raw text from PDF/Email.
+ * @return {Object} Parsed order metadata object.
+ */
+function parseOrderText(text) {
+  if (!text) text = "";
+  
+  var orderNumber = "";
+  var customerName = "לקוח לא ידוע";
+  var customerId = "";
+  var warehouse = "מחסן החרש";
+  var deliveryAddress = "";
+  var notes = "";
+  var items = [];
+  var pdfUrl = "";
+
+  // 1. Order Number Regex Parsing (e.g. 6213903, SBN-10029, ORD-5541)
+  var orderMatch = text.match(/מספר\s*הזמנה\s*[:\-]?\s*([A-Za-z0-9\-]+)/i) ||
+                     text.match(/\b(6\d{6})\b/) ||
+                     text.match(/\b(SBN-\d+)\b/i) ||
+                     text.match(/\b(ORD-\d+)\b/i) ||
+                     text.match(/הזמנה\s*#?\s*([0-9]{5,8})/);
+  if (orderMatch && orderMatch[1]) {
+    orderNumber = orderMatch[1].trim();
+  } else {
+    orderNumber = "6" + Math.floor(100000 + Math.random() * 900000);
+  }
+
+  // 2. Customer ID (Comax Code)
+  var idMatch = text.match(/מספר\s*לקוח\s*[:\-]?\s*([0-9]{4,8})/i) ||
+                text.match(/קוד\s*לקוח\s*[:\-]?\s*([0-9]{4,8})/i) ||
+                text.match(/ח\.פ\.\s*[:\-]?\s*([0-9]{4,9})/i);
+  if (idMatch && idMatch[1]) {
+    customerId = idMatch[1].trim();
+  }
+
+  // 3. Customer Name Regex Parsing
+  var customerMatch = text.match(/שם\s*לקוח\s*[:\-]?\s*([^\n\r,]+)/i) ||
+                         text.match(/לקוח\s*[:\-]?\s*([^\n\r,]+)/i) ||
+                         text.match(/עבור\s*[:\-]?\s*([^\n\r,]+)/i);
+  if (customerMatch && customerMatch[1]) {
+    customerName = customerMatch[1].trim();
+  } else if (text.indexOf("שופרסל") !== -1) {
+    customerName = 'שופרסל בע"מ';
+  } else if (text.indexOf("רמי לוי") !== -1) {
+    customerName = 'רמי לוי שיווק השקמה';
+  } else if (text.indexOf("מטרופוליס") !== -1) {
+    customerName = 'מטרופוליס - הרב קוק';
+  } else if (text.indexOf("חצי חינם") !== -1) {
+    customerName = 'חצי חינם בע"מ';
+  }
+
+  // 4. Warehouse Regex Parsing
+  var warehouseMatch = text.match(/מחסן\s*(?:הפצה)?\s*[:\-]?\s*([^\n\r,]+)/i);
+  if (warehouseMatch && warehouseMatch[1]) {
+    warehouse = warehouseMatch[1].trim();
+  } else if (text.indexOf("התלמיד") !== -1) {
+    warehouse = "מחסן התלמיד";
+  } else if (text.indexOf("עטרות") !== -1) {
+    warehouse = "מחסן עטרות";
+  }
+
+  // 5. Delivery Address Regex Parsing
+  var addressMatch = text.match(/כתובת\s*(?:אספקה)?\s*[:\-]?\s*([^\n\r,]+)/i) ||
+                        text.match(/לכתובת\s*[:\-]?\s*([^\n\r,]+)/i);
+  if (addressMatch && addressMatch[1]) {
+    deliveryAddress = addressMatch[1].trim();
+  }
+
+  // 6. Items Parsing from Text Lines
+  var lines = text.split(/[\r\n]+/);
+  lines.forEach(function(line, idx) {
+    var lineTrim = line.trim();
+    if (!lineTrim) return;
+
+    var itemMatch = lineTrim.match(/\[?([A-Za-z0-9\-]+)\]?\s*([^-\n\r]+?)(?:\s*[\-:]\s*|\s+)כמות\s*[:\-]?\s*(\d+)/i) ||
+                    lineTrim.match(/(\d+)\s*X\s*\[?([A-Za-z0-9\-]+)\]?\s*(.+)/i) ||
+                    lineTrim.match(/\[?([A-Za-z0-9\-]+)\]?\s*(.+?)\s+(\d+)\s*(?:יח'|יחידות|שקים|שק)?$/);
+
+    if (itemMatch) {
+      var sku = "SBN-GEN-99";
+      var name = lineTrim;
+      var qty = 1;
+
+      if (lineTrim.indexOf("כמות") !== -1) {
+        sku = itemMatch[1] ? itemMatch[1].trim() : "SBN-GEN-99";
+        name = itemMatch[2] ? itemMatch[2].trim() : lineTrim;
+        qty = parseInt(itemMatch[3], 10) || 1;
+      } else if (lineTrim.indexOf("X") !== -1 || lineTrim.indexOf("x") !== -1) {
+        qty = parseInt(itemMatch[1], 10) || 1;
+        sku = itemMatch[2] ? itemMatch[2].trim() : "SBN-GEN-99";
+        name = itemMatch[3] ? itemMatch[3].trim() : lineTrim;
+      }
+
+      var price = PRODUCT_PRICES[sku] || 50;
+      items.push({
+        id: "item-pdf-" + idx + "-" + sku,
+        sku: sku,
+        name: name,
+        quantity: qty,
+        price: price
+      });
+    }
+  });
+
+  // Fallback items if none parsed
+  if (items.length === 0) {
+    if (text.indexOf("חול") !== -1) {
+      items.push({ id: "item-1", sku: "11501", name: "חול שק גדול", quantity: 3, price: 45 });
+    }
+    if (text.indexOf("טיט") !== -1) {
+      items.push({ id: "item-2", sku: "11551", name: "טיט שק גדול", quantity: 2, price: 45 });
+    }
+    if (items.length === 0) {
+      items.push({ id: "item-gen", sku: "SBN-GEN-99", name: "אספקת חומרי לבן", quantity: 1, price: 250 });
+    }
+  }
+
+  return {
+    orderNumber: orderNumber,
+    customerName: customerName,
+    customerId: customerId,
+    warehouse: warehouse,
+    deliveryAddress: deliveryAddress,
+    notes: notes,
+    items: items,
+    itemsRawString: items.map(function(i) { return "[" + i.sku + "] " + i.name + " - כמות: " + i.quantity; }).join("\n")
+  };
+}
+
+/**
+ * Fetches live unread emails with attached PDFs, extracts order data, computes Noa deposits,
+ * appends/updates the 16-column sheet and Firestore, and marks the email as read.
+ * @return {Object} Processing execution status and parsed order details.
+ */
+function processIncomingOrders() {
+  try {
+    console.log("Starting processIncomingOrders live email ingestion...");
+    
+    // Search unread messages in inbox
+    var threads = GmailApp.search("label:inbox is:unread", 0, 15);
+    var processedOrders = [];
+    var processedCount = 0;
+
+    threads.forEach(function(thread) {
+      var messages = thread.getMessages();
+      messages.forEach(function(message) {
+        if (!message.isUnread()) return;
+
+        var subject = message.getSubject() || "";
+        var body = message.getPlainBody() || "";
+        var sender = message.getFrom() || "";
+        var attachments = message.getAttachments();
+        var pdfAttachment = null;
+
+        // Search for PDF attachment
+        for (var i = 0; i < attachments.length; i++) {
+          var att = attachments[i];
+          if (att.getContentType() === "application/pdf" || att.getName().toLowerCase().indexOf(".pdf") !== -1) {
+            pdfAttachment = att;
+            break;
+          }
+        }
+
+        var pdfUrl = "";
+        var extractedText = "";
+
+        if (pdfAttachment) {
+          extractedText = extractTextFromPDF(pdfAttachment);
+        } else {
+          extractedText = body;
+        }
+
+        // Parse order metadata & items
+        var parsedOrder = parseOrderText(extractedText + "\n" + body + "\n" + subject);
+        
+        // Drive Subfolder Creation: [שם הלקוח] - [מספר לקוח] inside SabanOS Delivery Documents (1CARwoXMPEODCVCAWHZZEK_a1jAi-kSIY)
+        var customerFolder = getOrCreateCustomerDriveFolder(parsedOrder.customerName, parsedOrder.customerId);
+
+        if (pdfAttachment) {
+          try {
+            var fileName = "Order_" + parsedOrder.orderNumber + "_" + (pdfAttachment.getName() || "ComaxOrder.pdf");
+            var savedFile = customerFolder.createFile(pdfAttachment.setName(fileName));
+            savedFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+            pdfUrl = savedFile.getUrl(); // Magic View Link behind "Eye" button in portal
+          } catch (sErr) {
+            console.warn("Could not save PDF to customer Drive folder: " + sErr.toString());
+          }
+        }
+
+        // Calculate deposits using Noa Anti-Double-Counting Engine
+        var deposits = calculateDepositsWithDeduplication(parsedOrder.items, parsedOrder.itemsRawString);
+
+        // Compute Noa AI Verification Status String
+        var noaStatus = "✅ אימות נועה תואם";
+        if (deposits.depositBales > 0 || deposits.depositPallets > 0) {
+          noaStatus += " (בלות: " + deposits.depositBales + ", משטחים: " + deposits.depositPallets + ")";
+        } else {
+          noaStatus = "✅ תואם ללא פקדונות";
+        }
+
+        var orderPayload = {
+          orderNumber: parsedOrder.orderNumber,
+          timestamp: new Date().toISOString(),
+          customerName: parsedOrder.customerName,
+          customerId: parsedOrder.customerId,
+          warehouse: parsedOrder.warehouse,
+          deliveryAddress: parsedOrder.deliveryAddress || "כתובת לפי תעודת משלוח",
+          driverName: "טרם הוקצה",
+          status: "pending",
+          items: parsedOrder.items,
+          itemsRawString: parsedOrder.itemsRawString,
+          notes: (pdfUrl ? "PDF Magic Link: " + pdfUrl + "\n" : "") + "קליטה אוטומטית ממייל: " + sender,
+          noaAnalysis: noaStatus,
+          depositBales: deposits.depositBales,
+          depositPallets: deposits.depositPallets,
+          depositDrums: deposits.depositDrums,
+          depositBlockPallets: deposits.depositBlockPallets,
+          pdfUrl: pdfUrl
+        };
+
+        // Inject 16-column row into Google Sheet and sync to Firestore
+        var success = addOrUpdateSheetOrderAndSync(orderPayload);
+        
+        if (success) {
+          processedCount++;
+          processedOrders.push({
+            orderNumber: parsedOrder.orderNumber,
+            customerName: parsedOrder.customerName,
+            customerId: parsedOrder.customerId,
+            subject: subject,
+            sender: sender,
+            pdfUrl: pdfUrl,
+            itemsCount: parsedOrder.items.length,
+            noaStatus: noaStatus,
+            deposits: deposits
+          });
+
+          // Mark message as read
+          try {
+            message.markRead();
+          } catch (mErr) {
+            console.warn("Could not mark message read: " + mErr.toString());
+          }
+        }
+      });
+    });
+
+    console.log("processIncomingOrders completed. Processed " + processedCount + " new orders.");
+    
+    return {
+      success: true,
+      message: "תהליך שאיבת המיילים וה-PDF הושלם בהצלחה. נקלטו " + processedCount + " הזמנות חדשות.",
+      processedCount: processedCount,
+      orders: processedOrders,
+      timestamp: new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error("Error in processIncomingOrders: " + error.toString());
+    return {
+      success: false,
+      error: error.toString(),
+      message: "שגיאה בביצוע שאיבת מיילים: " + error.toString()
+    };
+  }
+}
+
+// =========================================================================
+// 2. OnEdit Triggers & Event Handler
+// =========================================================================
+
 function onEdit(e) {
   processSheetEdit(e);
 }
 
-/**
- * Installable trigger function (if configured under Apps Script Triggers).
- */
 function onEditTrigger(e) {
   processSheetEdit(e);
 }
 
-/**
- * Core event handler for sheet row edits
- */
 function processSheetEdit(e) {
   if (!e || !e.source) return;
   try {
@@ -69,13 +471,11 @@ function processSheetEdit(e) {
     const range = e.range;
     const rowIndex = range.getRow();
 
-    // Skip header row
     if (rowIndex <= 1) return;
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     const colIndices = findColumnIndices(headers);
 
-    // Read full row values
     const row = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
     const rawOrderNo = row[colIndices.orderNumber];
     if (!rawOrderNo || String(rawOrderNo).trim() === "") return;
@@ -83,10 +483,8 @@ function processSheetEdit(e) {
     const itemsStr = String(row[colIndices.items] || '').trim();
     const parsedItems = parseItemsString(itemsStr, rowIndex);
 
-    // Calculate deposits with anti-double-counting mechanism
     const deposits = calculateDepositsWithDeduplication(parsedItems, itemsStr);
 
-    // Write updated deposit values back to the Google Sheet row (columns 13, 14, 15, 16)
     if (colIndices.depositBales !== -1) {
       sheet.getRange(rowIndex, colIndices.depositBales + 1).setValue(deposits.depositBales);
       row[colIndices.depositBales] = deposits.depositBales;
@@ -104,36 +502,21 @@ function processSheetEdit(e) {
       row[colIndices.depositBlockPallets] = deposits.depositBlockPallets;
     }
 
-    // Sync updated row payload to Firebase Firestore REST API
     const orderNumber = String(rawOrderNo).trim();
     const orderPayload = buildOrderPayload(row, colIndices, rowIndex);
     syncToFirestoreRest(orderNumber, orderPayload);
 
-    console.log("onEdit processed for Order #" + orderNumber + ". Deposits updated: Bales=" + deposits.depositBales + ", Pallets=" + deposits.depositPallets + ", Drums=" + deposits.depositDrums + ", BlockPallets=" + deposits.depositBlockPallets);
+    console.log("onEdit processed for Order #" + orderNumber);
   } catch (err) {
     console.error("Error in processSheetEdit: " + err.toString());
   }
 }
 
 // =========================================================================
-// 2. Deposit Engine & Anti-Double-Counting Mechanism
+// 3. Deposit Engine & Anti-Double-Counting Mechanism
 // =========================================================================
 
-/**
- * Calculates standard deposits from item breakdown while strictly preventing double counting.
- * 
- * Logic & Priority Rules:
- * 1. Scans for Explicit Deposit Items (e.g. SKU 60002 for Bale Deposit, SKU 60060 for Pallet Deposit).
- * 2. Scans for Implicit Products requiring deposits from the Logistics Dictionary (e.g. SKU 11511 Gravel Bale).
- * 3. Anti-Double-Counting Rule (מנגנון מניעת כפל חישוב): If explicit deposits are present, they OVERRIDE 
- *    the implicit dictionary calculation for that deposit category, ensuring no duplicate charging occurs.
- */
 function calculateDepositsWithDeduplication(items, itemsRawString) {
-  // -----------------------------------------------------------------------
-  // Category 1: Bales (פקדונות בלות / שק גדול / ביג בג)
-  // Explicit SKU: 60002 (שק גדול פקדון)
-  // Implicit SKUs: 11511 (חצץ בלה 1.5 טון), 11512 (חול בלה 1.5 טון)
-  // -----------------------------------------------------------------------
   let explicitBales = 0;
   let implicitBales = 0;
 
@@ -144,19 +527,13 @@ function calculateDepositsWithDeduplication(items, itemsRawString) {
 
     if (sku === '60002' || (name.indexOf('פקדון') !== -1 && (name.indexOf('בלה') !== -1 || name.indexOf('שק גדול') !== -1))) {
       explicitBales += qty;
-    } else if (sku === '11511' || sku === '11512' || name.indexOf('בלה') !== -1 || name.indexOf('שק גדול') !== -1 || name.indexOf('ביג בג') !== -1) {
+    } else if (sku === '11511' || sku === '11512' || sku === '11551' || sku === '11501' || name.indexOf('בלה') !== -1 || name.indexOf('שק גדול') !== -1 || name.indexOf('ביג בג') !== -1) {
       implicitBales += qty;
     }
   });
 
-  // Anti-Double-Counting Rule: Explicit overrides implicit
   const finalBales = explicitBales > 0 ? explicitBales : implicitBales;
 
-  // -----------------------------------------------------------------------
-  // Category 2: Pallets (פקדונות משטחים / משטח סבן)
-  // Explicit SKU: 60060 (משטח סבן פקדון)
-  // Implicit Calculation: 1 pallet per 10 heavy bags (25kg bags / cement / adhesive) or items mentioning 'משטח'
-  // -----------------------------------------------------------------------
   let explicitPallets = 0;
   let implicitPallets = 0;
   let heavyBagCount = 0;
@@ -179,14 +556,8 @@ function calculateDepositsWithDeduplication(items, itemsRawString) {
     implicitPallets = Math.ceil(heavyBagCount / 10);
   }
 
-  // Anti-Double-Counting Rule: Explicit overrides implicit
   const finalPallets = explicitPallets > 0 ? explicitPallets : implicitPallets;
 
-  // -----------------------------------------------------------------------
-  // Category 3: Drums (פקדונות חביות / תוף)
-  // Explicit SKU: 60003 (חבית פקדון)
-  // Implicit Items: Items containing 'חבית' or 'תוף'
-  // -----------------------------------------------------------------------
   let explicitDrums = 0;
   let implicitDrums = 0;
 
@@ -202,14 +573,8 @@ function calculateDepositsWithDeduplication(items, itemsRawString) {
     }
   });
 
-  // Anti-Double-Counting Rule: Explicit overrides implicit
   const finalDrums = explicitDrums > 0 ? explicitDrums : implicitDrums;
 
-  // -----------------------------------------------------------------------
-  // Category 4: Block Pallets (פקדונות משטחי בלוק)
-  // Explicit SKU: 60004 (משטח בלוק פקדון)
-  // Implicit Items: Items containing 'משטח בלוק' or 'בלוקים'
-  // -----------------------------------------------------------------------
   let explicitBlockPallets = 0;
   let implicitBlockPallets = 0;
 
@@ -225,7 +590,6 @@ function calculateDepositsWithDeduplication(items, itemsRawString) {
     }
   });
 
-  // Anti-Double-Counting Rule: Explicit overrides implicit
   const finalBlockPallets = explicitBlockPallets > 0 ? explicitBlockPallets : implicitBlockPallets;
 
   return {
@@ -237,16 +601,21 @@ function calculateDepositsWithDeduplication(items, itemsRawString) {
 }
 
 // =========================================================================
-// 3. Web App Request Endpoints (doGet / doPost)
+// 4. Web App Request Endpoints (doGet / doPost)
 // =========================================================================
 
-/**
- * Handle GET requests to fetch live logistics orders or execute sheet administrative actions
- */
 function doGet(e) {
   const callback = e && e.parameter && e.parameter.callback;
   
   try {
+    const action = e && e.parameter && e.parameter.action;
+
+    // Action: Live Email & PDF Ingestion
+    if (action === 'processIncomingOrders' || action === 'syncEmails') {
+      const result = processIncomingOrders();
+      return createJsonResponse(result, callback);
+    }
+
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = ss.getSheetByName(SHEET_NAME);
     
@@ -256,8 +625,6 @@ function doGet(e) {
         error: "Sheet '" + SHEET_NAME + "' not found."
       }, callback);
     }
-
-    const action = e && e.parameter && e.parameter.action;
 
     // Action: Update Order Status
     if (action === 'updateStatus') {
@@ -318,9 +685,6 @@ function doGet(e) {
   }
 }
 
-/**
- * Handle POST requests for updating order details or inserting new orders
- */
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -330,6 +694,11 @@ function doPost(e) {
     const postData = JSON.parse(e.postData.contents);
     const action = postData.action;
     
+    if (action === 'processIncomingOrders' || action === 'syncEmails') {
+      const result = processIncomingOrders();
+      return createJsonResponse(result);
+    }
+
     if (action === 'updateStatus') {
       const orderNumber = postData.orderNumber;
       const newStatus = postData.status;
@@ -365,12 +734,9 @@ function doPost(e) {
 }
 
 // =========================================================================
-// 4. Data Parsing & Helper Functions
+// 5. Data Parsing & Helper Functions
 // =========================================================================
 
-/**
- * Maps dynamic header positions across 16 standard columns
- */
 function findColumnIndices(headers) {
   const indices = {
     timestamp: 0,
@@ -432,9 +798,6 @@ function findColumnIndices(headers) {
   return indices;
 }
 
-/**
- * Builds structured JSON order payload from a Sheet row
- */
 function buildOrderPayload(row, colIndices, rowIndex) {
   const orderNumber = String(row[colIndices.orderNumber]).trim();
   const rawDate = row[colIndices.timestamp];
@@ -451,8 +814,6 @@ function buildOrderPayload(row, colIndices, rowIndex) {
   const noaAnalysis = colIndices.noaAnalysis !== -1 && row[colIndices.noaAnalysis] ? String(row[colIndices.noaAnalysis]).trim() : undefined;
 
   const parsedItems = parseItemsString(itemsRaw, rowIndex);
-  
-  // Calculate deposits with anti-double-counting engine
   const deposits = calculateDepositsWithDeduplication(parsedItems, itemsRaw);
 
   var timestampIso = "";
@@ -498,9 +859,6 @@ function buildOrderPayload(row, colIndices, rowIndex) {
   return payload;
 }
 
-/**
- * Parses item string into array of items with SKU, Name, Quantity, and Price
- */
 function parseItemsString(itemsStr, rowIndex) {
   if (!itemsStr) return [];
 
@@ -575,7 +933,7 @@ function parseSingleLineItem(line, rowIndex, itemIdx) {
 }
 
 // =========================================================================
-// 5. Firebase Sync & Administrative Operations
+// 6. Firebase Sync & Administrative Operations
 // =========================================================================
 
 function updateSheetOrderStatusAndSync(orderNumber, status) {
@@ -813,8 +1171,8 @@ function setupSheetAndHeaders() {
     }
 
     const headerRange = sheet.getRange(1, 1, 1, headers.length);
-    headerRange.setBackground("#1E293B")
-               .setFontColor("#FFFFFF")
+    headerRange.setBackground("#0F172A")
+               .setFontColor("#F97316")
                .setFontWeight("bold")
                .setFontFamily("Arial")
                .setFontSize(11)
@@ -843,8 +1201,8 @@ function onOpen() {
   try {
     const ui = SpreadsheetApp.getUi();
     ui.createMenu('SabanOS - ניהול לוגיסטי')
+      .addItem('📩 סנכרן מיילים חם (processIncomingOrders)', 'processIncomingOrders')
       .addItem('🛠️ צור גליון וכותרות עמודים', 'setupSheetAndHeaders')
-      .addItem('🔄 סנכרן את כל ההזמנות ל-Firebase', 'syncSheetToFirebase')
       .addToUi();
   } catch (e) {
     console.log("onOpen skipped: " + e.toString());

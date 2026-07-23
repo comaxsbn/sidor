@@ -67,6 +67,31 @@ function parseCSV(csvText: string): string[][] {
   return result;
 }
 
+// Helper to extract text body from Gmail payload
+function extractTextFromPayload(payload: any): string {
+  if (payload.body?.data) {
+    return Buffer.from(payload.body.data, 'base64url').toString('utf-8');
+  }
+  if (payload.parts && Array.isArray(payload.parts)) {
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        return Buffer.from(part.body.data, 'base64url').toString('utf-8');
+      }
+    }
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/html' && part.body?.data) {
+        const html = Buffer.from(part.body.data, 'base64url').toString('utf-8');
+        return html.replace(/<[^>]+>/g, ' ');
+      }
+      if (part.parts) {
+        const nested = extractTextFromPayload(part);
+        if (nested) return nested;
+      }
+    }
+  }
+  return '';
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -298,6 +323,169 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("Server proxy error deleting order:", error);
+      res.status(500).json({ success: false, error: error.message || String(error) });
+    }
+  });
+
+  // API proxy route for triggering processIncomingOrders (live email & PDF ingestion)
+  app.all("/api/process-incoming-orders", async (req, res) => {
+    const webappUrl = (req.query.webappUrl as string) || (req.body && req.body.webappUrl);
+    const targetUrl = webappUrl || process.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
+
+    try {
+      const url = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=processIncomingOrders`;
+      console.log(`Triggering processIncomingOrders via proxy: ${url}`);
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        redirect: 'follow'
+      });
+
+      if (!response.ok) {
+        throw new Error(`Google Sheets WebApp returned HTTP ${response.status}`);
+      }
+
+      const text = await response.text();
+      try {
+        const json = JSON.parse(text);
+        res.json(json);
+      } catch (parseErr) {
+        res.json({ success: true, message: "Processed incoming orders successfully", raw: text });
+      }
+    } catch (error: any) {
+      console.error("Server proxy error triggering processIncomingOrders:", error);
+      res.status(500).json({ success: false, error: error.message || String(error) });
+    }
+  });
+
+  // Gmail API Proxy - List Messages (bypasses browser CORS & iframe limitations)
+  app.get("/api/gmail/messages", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, error: "Missing Authorization header with OAuth access token" });
+    }
+
+    const query = (req.query.q as string) || "label:INBOX";
+    const maxResults = (req.query.maxResults as string) || "15";
+
+    try {
+      const listUrl = `https://gmail.googleapis.com/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`;
+      const response = await fetch(listUrl, {
+        headers: { Authorization: authHeader }
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ success: false, error: `Gmail API HTTP ${response.status}: ${errText}` });
+      }
+
+      const data = await response.json();
+      if (!data.messages || !Array.isArray(data.messages)) {
+        return res.json({ success: true, messages: [] });
+      }
+
+      const detailPromises = data.messages.slice(0, 15).map(async (m: { id: string }) => {
+        try {
+          const msgRes = await fetch(`https://gmail.googleapis.com/v1/users/me/messages/${m.id}?format=full`, {
+            headers: { Authorization: authHeader }
+          });
+          if (!msgRes.ok) return null;
+          const msgData = await msgRes.json();
+          const headers = msgData.payload?.headers || [];
+
+          const getHeader = (name: string) => {
+            const h = headers.find((item: any) => item.name.toLowerCase() === name.toLowerCase());
+            return h ? h.value : "";
+          };
+
+          const subject = getHeader("Subject") || "ללא נושא";
+          const from = getHeader("From") || "לא ידוע";
+          const to = getHeader("To") || "";
+          const date = getHeader("Date") || new Date().toISOString();
+
+          let bodyText = msgData.snippet || "";
+          if (msgData.payload) {
+            bodyText = extractTextFromPayload(msgData.payload) || msgData.snippet || "";
+          }
+
+          const hasAttachments = Boolean(
+            msgData.payload?.parts?.some((p: any) => p.filename && p.filename.length > 0)
+          );
+
+          return {
+            id: msgData.id,
+            threadId: msgData.threadId,
+            snippet: msgData.snippet || "",
+            subject,
+            from,
+            to,
+            date,
+            body: bodyText,
+            hasAttachments
+          };
+        } catch (e) {
+          return null;
+        }
+      });
+
+      const messages = (await Promise.all(detailPromises)).filter(Boolean);
+      return res.json({ success: true, messages });
+    } catch (error: any) {
+      console.error("Server proxy Gmail list error:", error);
+      res.status(500).json({ success: false, error: error.message || String(error) });
+    }
+  });
+
+  // Gmail API Proxy - Send Message
+  app.post("/api/gmail/send", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, error: "Missing Authorization header" });
+    }
+
+    const { to, subject, body } = req.body || {};
+    if (!to || !subject || !body) {
+      return res.status(400).json({ success: false, error: "Missing required fields: to, subject, body" });
+    }
+
+    try {
+      const mimeLines = [
+        `To: ${to}`,
+        `Subject: =?UTF-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`,
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset="UTF-8"',
+        'Content-Transfer-Encoding: base64',
+        '',
+        Buffer.from(body, 'utf-8').toString('base64')
+      ];
+
+      const rawMime = mimeLines.join('\r\n');
+      const base64UrlMime = Buffer.from(rawMime, 'utf-8')
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      const response = await fetch('https://gmail.googleapis.com/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ raw: base64UrlMime })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ success: false, error: `Gmail Send HTTP ${response.status}: ${errText}` });
+      }
+
+      const json = await response.json();
+      return res.json({ success: true, messageId: json.id });
+    } catch (error: any) {
+      console.error("Server proxy Gmail send error:", error);
       res.status(500).json({ success: false, error: error.message || String(error) });
     }
   });

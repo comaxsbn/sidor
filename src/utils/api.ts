@@ -1,38 +1,6 @@
 import { Order, OrderItem, OrderStatus, AppConfig, MetricSummary, AuditLogEntry } from '../types';
 
-// Default mock items for SabanOS Logistics
-export const MOCK_PRODUCTS = [
-  { sku: 'SBN-PL-01', name: 'משטח עץ אירופאי תקני', price: 85, nameEn: 'Standard Euro Wooden Pallet' },
-  { sku: 'SBN-ST-05', name: 'גליל ניילון נצמד 2.8 ק"ג', price: 42, nameEn: 'Stretch Wrap Roll 2.8kg' },
-  { sku: 'SBN-TP-12', name: 'סרט הדבקה אקרילי חום (שלישייה)', price: 18, nameEn: 'Acrylic Brown Tape (3-Pack)' },
-  { sku: 'SBN-BB-08', name: 'גליל פצפץ לעטיפה 50 ס"מ / 50 מ\'', price: 65, nameEn: 'Bubble Wrap Roll 50cm / 50m' },
-  { sku: 'SBN-ST-22', name: 'סרט קשירה פוליפרופילן PP', price: 120, nameEn: 'Polypropylene PP Strapping Band' },
-  { sku: 'SBN-LB-40', name: 'גליל מדבקות טרמיות 100x150', price: 35, nameEn: 'Thermal Labels Roll 100x150' },
-  { sku: 'SBN-BX-10', name: 'מארז 25 קרטוני דו-גל 40x30x30', price: 95, nameEn: '25-Pack Double-Wall Box 40x30x30' },
-  { sku: 'SBN-CN-03', name: 'פינות קרטון קשיחות להגנה (מארז 50)', price: 110, nameEn: 'Rigid Edge Protectors (50-Pack)' },
-];
 
-const MOCK_CUSTOMERS = [
-  { name: 'שופרסל בע"מ', nameEn: 'Shufersal Ltd' },
-  { name: 'רמי לוי שיווק השקמה', nameEn: 'Rami Levy Hashikma' },
-  { name: 'יוחננוף סופרשוק', nameEn: 'Yohananof Supermarkets' },
-  { name: 'מחסני השוק בע"מ', nameEn: 'Machsanei HaShuk' },
-  { name: 'ויקטורי רשת סופרמרקטים', nameEn: 'Victory Supermarkets' },
-  { name: 'יינות ביתן והתחנות', nameEn: 'Yenot Bitan' },
-  { name: 'חצי חינם סחר', nameEn: 'Hazi Hinam Trade' },
-  { name: 'דואר ישראל - מרכז מיון', nameEn: 'Israel Post Sorting Hub' },
-];
-
-const MOCK_ADDRESSES = [
-  { address: 'החרש 14, אזור התעשייה תל אביב', addressEn: '14 HaCharash St, Tel Aviv Industrial Zone' },
-  { address: 'התלמיד 5, אזור תעשייה עטרות, ירושלים', addressEn: '5 HaTalmid St, Atarot Industrial Zone, Jerusalem' },
-  { address: 'דרך השלום 42, פארק המדע חיפה', addressEn: '42 Derech HaShalom, Haifa Science Park' },
-  { address: 'האורגים 8, אזור התעשייה אשדוד', addressEn: '8 HaOregim St, Ashdod Industrial Zone' },
-  { address: 'התעשייה 21, עמק שרה, באר שבע', addressEn: '21 HaTaasiya St, Emek Sara, Beer Sheva' },
-  { address: 'שדרות המקצועות 12, מודיעין פארק טכנולוגי', addressEn: '12 Sderot HaMikzoat, Modiin Tech Park' },
-  { address: 'הרצל 105, ראשון לציון', addressEn: '105 Herzl St, Rishon LeZion' },
-  { address: 'המסגר 9, חולון אזור תעשייה', addressEn: '9 HaMasgar St, Holon Industrial Zone' },
-];
 
 const MOCK_WAREHOUSES = [
   { he: 'מחסן החרש', en: 'HaCharash Warehouse' },
@@ -151,15 +119,55 @@ export function saveStoredConfig(config: AppConfig): void {
 
 export function deduplicateOrders(orders: Order[]): Order[] {
   if (!Array.isArray(orders)) return [];
-  const seenMap = new Map<string, Order>();
-  orders.forEach((o, index) => {
-    let id = o.id || `order-${o.orderNumber || index}`;
-    if (seenMap.has(id)) {
-      id = `${id}-${index}-${Math.random().toString(36).substring(2, 6)}`;
+  const map = new Map<string, Order>();
+
+  orders.forEach((o) => {
+    if (!o) return;
+    const rawNum = o.orderNumber ? String(o.orderNumber).trim() : (o.id ? String(o.id).trim() : '');
+    if (!rawNum || rawNum === 'מספר הזמנה' || rawNum === 'orderNumber') return;
+
+    const normKey = rawNum.toLowerCase();
+
+    if (!map.has(normKey)) {
+      map.set(normKey, {
+        ...o,
+        id: `live-${rawNum}`,
+        orderNumber: rawNum,
+      });
+    } else {
+      const existing = map.get(normKey)!;
+      
+      const existingItemsCount = existing.items ? existing.items.length : 0;
+      const newItemsCount = o.items ? o.items.length : 0;
+      
+      let mergedItems = existing.items || [];
+      if (newItemsCount > existingItemsCount) {
+        mergedItems = o.items;
+      }
+
+      const mergedCustomer = (o.customerName && o.customerName !== 'לקוח לא ידוע') ? o.customerName : existing.customerName;
+      const mergedAddress = o.deliveryAddress || existing.deliveryAddress;
+      const mergedWarehouse = o.warehouse || existing.warehouse;
+      const mergedNotes = o.notes || existing.notes;
+      const mergedDriver = o.driverName || existing.driverName;
+
+      map.set(normKey, {
+        ...existing,
+        ...o,
+        id: existing.id || `live-${rawNum}`,
+        orderNumber: rawNum,
+        customerName: mergedCustomer,
+        deliveryAddress: mergedAddress,
+        warehouse: mergedWarehouse,
+        driverName: mergedDriver,
+        notes: mergedNotes,
+        items: mergedItems,
+        totalAmount: mergedItems ? mergedItems.reduce((acc, item) => acc + (item.price * item.quantity), 0) : existing.totalAmount
+      });
     }
-    seenMap.set(id, { ...o, id });
   });
-  return Array.from(seenMap.values());
+
+  return Array.from(map.values());
 }
 
 export function getStoredOrders(): Order[] {
@@ -168,18 +176,14 @@ export function getStoredOrders(): Order[] {
     try {
       const parsed = JSON.parse(saved) as Order[];
       const deduped = deduplicateOrders(parsed);
-      return deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      // Filter out mock legacy orders
+      const sheetOnly = deduped.filter(o => !o.id.startsWith('ord-1000'));
+      return sheetOnly.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     } catch (e) {
       // fallback
     }
   }
-  
-  // Initialize with generateMockOrders and save
-  const mock = generateMockOrders();
-  const dedupedMock = deduplicateOrders(mock);
-  const sortedMock = dedupedMock.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(sortedMock));
-  return sortedMock;
+  return [];
 }
 
 export function saveStoredOrders(orders: Order[]): void {
@@ -720,7 +724,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
         const totalAmount = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
         return {
-          id: `live-${idx}-${orderNumber}`,
+          id: `live-${orderNumber}`,
           orderNumber,
           timestamp,
           customerName,
@@ -779,7 +783,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
         const totalAmount = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
         return {
-          id: `live-${idx}-${orderNumber}`,
+          id: `live-${orderNumber}`,
           orderNumber,
           timestamp,
           customerName,
@@ -802,14 +806,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
       }
     });
 
-    const uniqueMap = new Map<string, Order>();
-    parsedOrders.forEach((o, index) => {
-      const key = o.id || `live-${index}-${o.orderNumber}`;
-      if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, { ...o, id: key });
-      }
-    });
-    const uniqueOrders = Array.from(uniqueMap.values());
+    const uniqueOrders = deduplicateOrders(parsedOrders);
     return uniqueOrders.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   } catch (error) {
@@ -921,6 +918,29 @@ export async function deleteLiveOrder(webappUrl: string | undefined, orderNumber
     return false;
   }
 }
+
+/**
+ * Triggers processIncomingOrders in Google Apps Script Backend to ingest live emails & PDFs
+ */
+export async function triggerProcessIncomingOrders(webappUrl?: string): Promise<{ success: boolean; message?: string; processedCount?: number; orders?: any[]; error?: string }> {
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
+  try {
+    const response = await fetch(`/api/process-incoming-orders?webappUrl=${encodeURIComponent(targetUrl)}`);
+    if (!response.ok) {
+      throw new Error(`Proxy processIncomingOrders returned HTTP ${response.status}`);
+    }
+    const json = await response.json();
+    return json;
+  } catch (err: any) {
+    console.error('Failed to trigger processIncomingOrders:', err);
+    return { success: false, error: err.message || String(err) };
+  }
+}
+
+/**
+ * Alias for fetchLiveOrders to match getLiveOrdersData requirement
+ */
+export const getLiveOrdersData = fetchLiveOrders;
 
 // Compute key metrics
 export function computeMetrics(orders: Order[]): MetricSummary {

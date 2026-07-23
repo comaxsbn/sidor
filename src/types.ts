@@ -67,3 +67,16 @@ export interface AuditLogEntry {
   updatedBy: string;
 }
 
+export interface GmailMessage {
+  id: string;
+  threadId: string;
+  snippet?: string;
+  subject?: string;
+  from?: string;
+  to?: string;
+  date?: string;
+  body?: string;
+  hasAttachments?: boolean;
+}
+
+

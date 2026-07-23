@@ -11,6 +11,14 @@ import {
   deleteDoc,
   onSnapshot
 } from 'firebase/firestore';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  User,
+  signOut
+} from 'firebase/auth';
 import { Order, AuditLogEntry } from '../types';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -18,7 +26,80 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 // Connect to the specific database instance provisioned for this applet
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
+export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId || '(default)');
+
+// Initialize Auth
+export const auth = getAuth(app);
+
+// Configure Google Auth Provider with Gmail Scopes
+const provider = new GoogleAuthProvider();
+provider.addScope('https://mail.google.com/');
+provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+provider.addScope('https://www.googleapis.com/auth/gmail.send');
+provider.addScope('https://www.googleapis.com/auth/gmail.modify');
+
+let isSigningIn = false;
+let cachedAccessToken: string | null = null;
+
+/**
+ * Initializes Firebase Auth state listener and token cache
+ */
+export const initAuth = (
+  onAuthSuccess?: (user: User, token: string) => void,
+  onAuthFailure?: () => void
+) => {
+  return onAuthStateChanged(auth, async (user: User | null) => {
+    if (user) {
+      if (cachedAccessToken) {
+        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      } else if (!isSigningIn) {
+        cachedAccessToken = null;
+        if (onAuthFailure) onAuthFailure();
+      }
+    } else {
+      cachedAccessToken = null;
+      if (onAuthFailure) onAuthFailure();
+    }
+  });
+};
+
+/**
+ * Executes Google Sign-In with popup and caches the OAuth access token in memory
+ */
+export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+  try {
+    isSigningIn = true;
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error('Failed to obtain access token from Firebase Auth credential');
+    }
+
+    cachedAccessToken = credential.accessToken;
+    return { user: result.user, accessToken: cachedAccessToken };
+  } catch (error: any) {
+    console.error('Google Sign-In error:', error);
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
+};
+
+/**
+ * Returns the currently cached OAuth access token
+ */
+export const getAccessToken = (): string | null => {
+  return cachedAccessToken;
+};
+
+/**
+ * Signs out current user and clears in-memory OAuth token
+ */
+export const logoutUser = async () => {
+  await signOut(auth);
+  cachedAccessToken = null;
+};
+
 
 // Reference to collections
 const ORDERS_COLLECTION = 'orders';
