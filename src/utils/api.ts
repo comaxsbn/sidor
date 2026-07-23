@@ -1,6 +1,38 @@
 import { Order, OrderItem, OrderStatus, AppConfig, MetricSummary, AuditLogEntry } from '../types';
 
+// Default mock items for SabanOS Logistics
+export const MOCK_PRODUCTS = [
+  { sku: 'SBN-PL-01', name: 'משטח עץ אירופאי תקני', price: 85, nameEn: 'Standard Euro Wooden Pallet' },
+  { sku: 'SBN-ST-05', name: 'גליל ניילון נצמד 2.8 ק"ג', price: 42, nameEn: 'Stretch Wrap Roll 2.8kg' },
+  { sku: 'SBN-TP-12', name: 'סרט הדבקה אקרילי חום (שלישייה)', price: 18, nameEn: 'Acrylic Brown Tape (3-Pack)' },
+  { sku: 'SBN-BB-08', name: 'גליל פצפץ לעטיפה 50 ס"מ / 50 מ\'', price: 65, nameEn: 'Bubble Wrap Roll 50cm / 50m' },
+  { sku: 'SBN-ST-22', name: 'סרט קשירה פוליפרופילן PP', price: 120, nameEn: 'Polypropylene PP Strapping Band' },
+  { sku: 'SBN-LB-40', name: 'גליל מדבקות טרמיות 100x150', price: 35, nameEn: 'Thermal Labels Roll 100x150' },
+  { sku: 'SBN-BX-10', name: 'מארז 25 קרטוני דו-גל 40x30x30', price: 95, nameEn: '25-Pack Double-Wall Box 40x30x30' },
+  { sku: 'SBN-CN-03', name: 'פינות קרטון קשיחות להגנה (מארז 50)', price: 110, nameEn: 'Rigid Edge Protectors (50-Pack)' },
+];
 
+const MOCK_CUSTOMERS = [
+  { name: 'שופרסל בע"מ', nameEn: 'Shufersal Ltd' },
+  { name: 'רמי לוי שיווק השקמה', nameEn: 'Rami Levy Hashikma' },
+  { name: 'יוחננוף סופרשוק', nameEn: 'Yohananof Supermarkets' },
+  { name: 'מחסני השוק בע"מ', nameEn: 'Machsanei HaShuk' },
+  { name: 'ויקטורי רשת סופרמרקטים', nameEn: 'Victory Supermarkets' },
+  { name: 'יינות ביתן והתחנות', nameEn: 'Yenot Bitan' },
+  { name: 'חצי חינם סחר', nameEn: 'Hazi Hinam Trade' },
+  { name: 'דואר ישראל - מרכז מיון', nameEn: 'Israel Post Sorting Hub' },
+];
+
+const MOCK_ADDRESSES = [
+  { address: 'החרש 14, אזור התעשייה תל אביב', addressEn: '14 HaCharash St, Tel Aviv Industrial Zone' },
+  { address: 'התלמיד 5, אזור תעשייה עטרות, ירושלים', addressEn: '5 HaTalmid St, Atarot Industrial Zone, Jerusalem' },
+  { address: 'דרך השלום 42, פארק המדע חיפה', addressEn: '42 Derech HaShalom, Haifa Science Park' },
+  { address: 'האורגים 8, אזור התעשייה אשדוד', addressEn: '8 HaOregim St, Ashdod Industrial Zone' },
+  { address: 'התעשייה 21, עמק שרה, באר שבע', addressEn: '21 HaTaasiya St, Emek Sara, Beer Sheva' },
+  { address: 'שדרות המקצועות 12, מודיעין פארק טכנולוגי', addressEn: '12 Sderot HaMikzoat, Modiin Tech Park' },
+  { address: 'הרצל 105, ראשון לציון', addressEn: '105 Herzl St, Rishon LeZion' },
+  { address: 'המסגר 9, חולון אזור תעשייה', addressEn: '9 HaMasgar St, Holon Industrial Zone' },
+];
 
 const MOCK_WAREHOUSES = [
   { he: 'מחסן החרש', en: 'HaCharash Warehouse' },
@@ -88,13 +120,14 @@ const STORAGE_CONFIG_KEY = 'sabanos_config_v1';
 const STORAGE_ORDERS_KEY = 'sabanos_orders_v1';
 
 export function getStoredConfig(): AppConfig {
-  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbwssxd5p5iehQU0BfmK33x4O_v_JmVnCKyjI36SvKPkGwNqdB1sziSsLgTbakKPmoWmNA/exec';
+  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
+  const OLD_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxHm1GO0CNvCiTDoPwuLzPxFIzg5izfyLTH5lUP1OHu83tKUEEETtqTvZkXjan9By0UyQ/exec';
   const saved = localStorage.getItem(STORAGE_CONFIG_KEY);
   if (saved) {
     try {
       const config = JSON.parse(saved);
       let url = config.webappUrl || DEFAULT_URL;
-      if (!url || !url.includes('script.google.com')) {
+      if (url === OLD_DEFAULT_URL) {
         url = DEFAULT_URL;
       }
       return {
@@ -119,55 +152,15 @@ export function saveStoredConfig(config: AppConfig): void {
 
 export function deduplicateOrders(orders: Order[]): Order[] {
   if (!Array.isArray(orders)) return [];
-  const map = new Map<string, Order>();
-
-  orders.forEach((o) => {
-    if (!o) return;
-    const rawNum = o.orderNumber ? String(o.orderNumber).trim() : (o.id ? String(o.id).trim() : '');
-    if (!rawNum || rawNum === 'מספר הזמנה' || rawNum === 'orderNumber') return;
-
-    const normKey = rawNum.toLowerCase();
-
-    if (!map.has(normKey)) {
-      map.set(normKey, {
-        ...o,
-        id: `live-${rawNum}`,
-        orderNumber: rawNum,
-      });
-    } else {
-      const existing = map.get(normKey)!;
-      
-      const existingItemsCount = existing.items ? existing.items.length : 0;
-      const newItemsCount = o.items ? o.items.length : 0;
-      
-      let mergedItems = existing.items || [];
-      if (newItemsCount > existingItemsCount) {
-        mergedItems = o.items;
-      }
-
-      const mergedCustomer = (o.customerName && o.customerName !== 'לקוח לא ידוע') ? o.customerName : existing.customerName;
-      const mergedAddress = o.deliveryAddress || existing.deliveryAddress;
-      const mergedWarehouse = o.warehouse || existing.warehouse;
-      const mergedNotes = o.notes || existing.notes;
-      const mergedDriver = o.driverName || existing.driverName;
-
-      map.set(normKey, {
-        ...existing,
-        ...o,
-        id: existing.id || `live-${rawNum}`,
-        orderNumber: rawNum,
-        customerName: mergedCustomer,
-        deliveryAddress: mergedAddress,
-        warehouse: mergedWarehouse,
-        driverName: mergedDriver,
-        notes: mergedNotes,
-        items: mergedItems,
-        totalAmount: mergedItems ? mergedItems.reduce((acc, item) => acc + (item.price * item.quantity), 0) : existing.totalAmount
-      });
+  const seenMap = new Map<string, Order>();
+  orders.forEach((o, index) => {
+    let id = o.id || `order-${o.orderNumber || index}`;
+    if (seenMap.has(id)) {
+      id = `${id}-${index}-${Math.random().toString(36).substring(2, 6)}`;
     }
+    seenMap.set(id, { ...o, id });
   });
-
-  return Array.from(map.values());
+  return Array.from(seenMap.values());
 }
 
 export function getStoredOrders(): Order[] {
@@ -176,14 +169,18 @@ export function getStoredOrders(): Order[] {
     try {
       const parsed = JSON.parse(saved) as Order[];
       const deduped = deduplicateOrders(parsed);
-      // Filter out mock legacy orders
-      const sheetOnly = deduped.filter(o => !o.id.startsWith('ord-1000'));
-      return sheetOnly.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     } catch (e) {
       // fallback
     }
   }
-  return [];
+  
+  // Initialize with generateMockOrders and save
+  const mock = generateMockOrders();
+  const dedupedMock = deduplicateOrders(mock);
+  const sortedMock = dedupedMock.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(sortedMock));
+  return sortedMock;
 }
 
 export function saveStoredOrders(orders: Order[]): void {
@@ -503,82 +500,90 @@ export function calculateDepositsFromItems(order: Partial<Order>): {
   depositBlockPallets: number;
 } {
   const items = order.items || [];
+  const rawText = (order.itemsRawString || items.map(i => `${i.name} ${i.quantity}`).join(' ')).toLowerCase();
 
   // 1. Bales (בלות / שק גדול / ביג בג)
-  let explicitBales = 0;
-  let calculatedBales = 0;
-  items.forEach(i => {
-    const name = (i.name || '').toLowerCase();
-    const sku = (i.sku || '').toLowerCase();
-    const qty = i.quantity || 1;
-    if (sku === '60002' || (name.includes('פקדון') && (name.includes('בלה') || name.includes('שק גדול') || name.includes('ביג בג')))) {
-      explicitBales += qty;
-    } else if (sku === '11511' || sku === '11512' || name.includes('בלה') || name.includes('שק גדול') || name.includes('ביג בג')) {
-      calculatedBales += qty;
+  let bales = order.depositBales;
+  if (bales === undefined || bales === null || bales === 0) {
+    let sum = 0;
+    items.forEach(i => {
+      const name = (i.name || '').toLowerCase();
+      const sku = (i.sku || '').toLowerCase();
+      if (name.includes('בלה') || name.includes('בלות') || name.includes('שק גדול') || name.includes('ביג בג') || name.includes('big bag') || sku === '60002') {
+        sum += i.quantity || 1;
+      }
+    });
+    if (sum === 0 && rawText) {
+      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:בלה|בלות|שק גדול|ביג בג)/);
+      if (m) sum = parseInt(m[1], 10);
     }
-  });
-  // Anti-double-counting rule: Explicit deposit SKU overrides calculated dictionary deposits completely
-  const finalBales = explicitBales > 0 ? explicitBales : calculatedBales;
-
-  // 2. Pallets (משטחים)
-  let explicitPallets = 0;
-  let calculatedPallets = 0;
-  let heavyCount = 0;
-  items.forEach(i => {
-    const name = (i.name || '').toLowerCase();
-    const sku = (i.sku || '').toLowerCase();
-    const qty = i.quantity || 1;
-    if (sku === '60060' || (name.includes('פקדון') && (name.includes('משטח') || name.includes('פלטה')) && !name.includes('בלוק'))) {
-      explicitPallets += qty;
-    } else if (name.includes('משטח עץ') || name.includes('משטח סבן') || (name.includes('משטח') && !name.includes('בלוק')) || name.includes('פלטה')) {
-      calculatedPallets += qty;
-    } else if (name.includes('שק') || name.includes('25 ק"ג') || name.includes('מלט') || name.includes('טיח') || name.includes('דבק')) {
-      heavyCount += qty;
-    }
-  });
-  if (calculatedPallets === 0 && heavyCount > 0) {
-    calculatedPallets = Math.ceil(heavyCount / 10);
+    bales = sum;
   }
-  // Anti-double-counting rule: Explicit overrides calculated
-  const finalPallets = explicitPallets > 0 ? explicitPallets : calculatedPallets;
+
+  // 2. Pallets (משטחים תקניים / פלטה / חישוב 10 שקים כבדים = משטח)
+  let pallets = order.depositPallets;
+  if (pallets === undefined || pallets === null || pallets === 0) {
+    let sum = 0;
+    let heavyCount = 0;
+    items.forEach(i => {
+      const name = (i.name || '').toLowerCase();
+      const sku = (i.sku || '').toLowerCase();
+      if (name.includes('משטח עץ') || name.includes('משטח סבן') || (name.includes('משטח') && !name.includes('בלוק')) || name.includes('פלטה') || name.includes('pallet') || sku === '60060') {
+        sum += i.quantity || 1;
+      } else if (name.includes('שק') || name.includes('25 ק"ג') || name.includes('מלט') || name.includes('טיח') || name.includes('דבק')) {
+        heavyCount += i.quantity || 1;
+      }
+    });
+    if (sum > 0) {
+      pallets = sum;
+    } else if (heavyCount > 0) {
+      pallets = Math.ceil(heavyCount / 10);
+    } else {
+      pallets = 0;
+    }
+  }
 
   // 3. Drums (חביות / תוף)
-  let explicitDrums = 0;
-  let calculatedDrums = 0;
-  items.forEach(i => {
-    const name = (i.name || '').toLowerCase();
-    const sku = (i.sku || '').toLowerCase();
-    const qty = i.quantity || 1;
-    if (sku === '60003' || (name.includes('פקדון') && (name.includes('חבית') || name.includes('תוף')))) {
-      explicitDrums += qty;
-    } else if (name.includes('חבית') || name.includes('תוף') || name.includes('drum')) {
-      calculatedDrums += qty;
+  let drums = order.depositDrums;
+  if (drums === undefined || drums === null || drums === 0) {
+    let sum = 0;
+    items.forEach(i => {
+      const name = (i.name || '').toLowerCase();
+      const sku = (i.sku || '').toLowerCase();
+      if (name.includes('חבית') || name.includes('חביות') || name.includes('תוף') || name.includes('drum') || name.includes('barrel') || sku === '60003') {
+        sum += i.quantity || 1;
+      }
+    });
+    if (sum === 0 && rawText) {
+      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:חבית|חביות|תוף)/);
+      if (m) sum = parseInt(m[1], 10);
     }
-  });
-  // Anti-double-counting rule: Explicit overrides calculated
-  const finalDrums = explicitDrums > 0 ? explicitDrums : calculatedDrums;
+    drums = sum;
+  }
 
   // 4. Block Pallets (משטחי בלוק)
-  let explicitBlockPallets = 0;
-  let calculatedBlockPallets = 0;
-  items.forEach(i => {
-    const name = (i.name || '').toLowerCase();
-    const sku = (i.sku || '').toLowerCase();
-    const qty = i.quantity || 1;
-    if (sku === '60004' || (name.includes('פקדון') && name.includes('בלוק'))) {
-      explicitBlockPallets += qty;
-    } else if (name.includes('משטח בלוק') || name.includes('בלוקים') || name.includes('אבני שפה')) {
-      calculatedBlockPallets += qty;
+  let blockPallets = order.depositBlockPallets;
+  if (blockPallets === undefined || blockPallets === null || blockPallets === 0) {
+    let sum = 0;
+    items.forEach(i => {
+      const name = (i.name || '').toLowerCase();
+      const sku = (i.sku || '').toLowerCase();
+      if (name.includes('משטח בלוק') || name.includes('בלוקים') || name.includes('משטחי בלוק') || name.includes('block pallet')) {
+        sum += i.quantity || 1;
+      }
+    });
+    if (sum === 0 && rawText) {
+      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:משטח בלוק|בלוקים|משטחי בלוק)/);
+      if (m) sum = parseInt(m[1], 10);
     }
-  });
-  // Anti-double-counting rule: Explicit overrides calculated
-  const finalBlockPallets = explicitBlockPallets > 0 ? explicitBlockPallets : calculatedBlockPallets;
+    blockPallets = sum;
+  }
 
   return {
-    depositBales: order.depositBales && order.depositBales > 0 ? Math.max(order.depositBales, finalBales) : finalBales,
-    depositPallets: order.depositPallets && order.depositPallets > 0 ? Math.max(order.depositPallets, finalPallets) : finalPallets,
-    depositDrums: order.depositDrums && order.depositDrums > 0 ? Math.max(order.depositDrums, finalDrums) : finalDrums,
-    depositBlockPallets: order.depositBlockPallets && order.depositBlockPallets > 0 ? Math.max(order.depositBlockPallets, finalBlockPallets) : finalBlockPallets
+    depositBales: bales,
+    depositPallets: pallets,
+    depositDrums: drums,
+    depositBlockPallets: blockPallets
   };
 }
 
@@ -661,7 +666,7 @@ const safeToIsoString = (val: any): string => {
  * Fetch live spreadsheet data via Google Apps Script WebApp
  */
 export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
   
   let rawList: any[] = [];
   try {
@@ -724,7 +729,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
         const totalAmount = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
         return {
-          id: `live-${orderNumber}`,
+          id: `live-${idx}-${orderNumber}`,
           orderNumber,
           timestamp,
           customerName,
@@ -783,7 +788,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
         const totalAmount = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
         return {
-          id: `live-${orderNumber}`,
+          id: `live-${idx}-${orderNumber}`,
           orderNumber,
           timestamp,
           customerName,
@@ -806,7 +811,14 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
       }
     });
 
-    const uniqueOrders = deduplicateOrders(parsedOrders);
+    const uniqueMap = new Map<string, Order>();
+    parsedOrders.forEach((o, index) => {
+      const key = o.id || `live-${index}-${o.orderNumber}`;
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, { ...o, id: key });
+      }
+    });
+    const uniqueOrders = Array.from(uniqueMap.values());
     return uniqueOrders.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   } catch (error) {
@@ -819,7 +831,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
  * Update order status directly in the Google Sheet via Apps Script WebApp
  */
 export async function updateLiveOrderStatus(webappUrl: string | undefined, orderNumber: string, status: OrderStatus): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyk1zm83bOdA_1H6qTPvoEX1k-NY3klb3YnfWngVFOlrAxnBy9P2Bf8BNnbcgaHkWZdOg/exec';
   if (!targetUrl) return false;
   
   try {
@@ -842,7 +854,7 @@ export async function updateLiveOrderStatus(webappUrl: string | undefined, order
  * Add a new order directly to the online Google Sheet via Apps Script WebApp
  */
 export async function addLiveOrder(webappUrl: string | undefined, order: Order): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
   if (!targetUrl) return false;
 
   try {
@@ -869,7 +881,7 @@ export async function addLiveOrder(webappUrl: string | undefined, order: Order):
  * Update full order details in the online Google Sheet via Apps Script WebApp
  */
 export async function updateLiveOrderDetails(webappUrl: string | undefined, order: Order): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
   if (!targetUrl) return false;
 
   try {
@@ -896,7 +908,7 @@ export async function updateLiveOrderDetails(webappUrl: string | undefined, orde
  * Delete an order from the online Google Sheet via Apps Script WebApp
  */
 export async function deleteLiveOrder(webappUrl: string | undefined, orderNumber: string): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
   if (!targetUrl) return false;
 
   try {
@@ -918,29 +930,6 @@ export async function deleteLiveOrder(webappUrl: string | undefined, orderNumber
     return false;
   }
 }
-
-/**
- * Triggers processIncomingOrders in Google Apps Script Backend to ingest live emails & PDFs
- */
-export async function triggerProcessIncomingOrders(webappUrl?: string): Promise<{ success: boolean; message?: string; processedCount?: number; orders?: any[]; error?: string }> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
-  try {
-    const response = await fetch(`/api/process-incoming-orders?webappUrl=${encodeURIComponent(targetUrl)}`);
-    if (!response.ok) {
-      throw new Error(`Proxy processIncomingOrders returned HTTP ${response.status}`);
-    }
-    const json = await response.json();
-    return json;
-  } catch (err: any) {
-    console.error('Failed to trigger processIncomingOrders:', err);
-    return { success: false, error: err.message || String(err) };
-  }
-}
-
-/**
- * Alias for fetchLiveOrders to match getLiveOrdersData requirement
- */
-export const getLiveOrdersData = fetchLiveOrders;
 
 // Compute key metrics
 export function computeMetrics(orders: Order[]): MetricSummary {
