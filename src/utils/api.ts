@@ -121,13 +121,12 @@ const STORAGE_ORDERS_KEY = 'sabanos_orders_v1';
 
 export function getStoredConfig(): AppConfig {
   const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
-  const OLD_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxHm1GO0CNvCiTDoPwuLzPxFIzg5izfyLTH5lUP1OHu83tKUEEETtqTvZkXjan9By0UyQ/exec';
   const saved = localStorage.getItem(STORAGE_CONFIG_KEY);
   if (saved) {
     try {
       const config = JSON.parse(saved);
       let url = config.webappUrl || DEFAULT_URL;
-      if (url === OLD_DEFAULT_URL) {
+      if (!url || !url.includes('script.google.com')) {
         url = DEFAULT_URL;
       }
       return {
@@ -666,7 +665,7 @@ const safeToIsoString = (val: any): string => {
  * Fetch live spreadsheet data via Google Apps Script WebApp
  */
 export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
   
   let rawList: any[] = [];
   try {
@@ -831,7 +830,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
  * Update order status directly in the Google Sheet via Apps Script WebApp
  */
 export async function updateLiveOrderStatus(webappUrl: string | undefined, orderNumber: string, status: OrderStatus): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyk1zm83bOdA_1H6qTPvoEX1k-NY3klb3YnfWngVFOlrAxnBy9P2Bf8BNnbcgaHkWZdOg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
   if (!targetUrl) return false;
   
   try {
@@ -854,7 +853,7 @@ export async function updateLiveOrderStatus(webappUrl: string | undefined, order
  * Add a new order directly to the online Google Sheet via Apps Script WebApp
  */
 export async function addLiveOrder(webappUrl: string | undefined, order: Order): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
   if (!targetUrl) return false;
 
   try {
@@ -881,7 +880,7 @@ export async function addLiveOrder(webappUrl: string | undefined, order: Order):
  * Update full order details in the online Google Sheet via Apps Script WebApp
  */
 export async function updateLiveOrderDetails(webappUrl: string | undefined, order: Order): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
   if (!targetUrl) return false;
 
   try {
@@ -908,7 +907,7 @@ export async function updateLiveOrderDetails(webappUrl: string | undefined, orde
  * Delete an order from the online Google Sheet via Apps Script WebApp
  */
 export async function deleteLiveOrder(webappUrl: string | undefined, orderNumber: string): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
   if (!targetUrl) return false;
 
   try {

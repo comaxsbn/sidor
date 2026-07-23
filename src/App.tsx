@@ -270,7 +270,7 @@ export default function App() {
         if (liveOrders.length === 0 && !isInitialSeeding) {
           isInitialSeeding = true;
           console.log('Firestore is empty. Fetching initial data from WebApp to populate Firestore...');
-          const targetUrl = config.webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
+          const targetUrl = config.webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
           try {
             const liveData = await fetchLiveOrders(targetUrl);
             await syncOrdersToFirestore(liveData);
@@ -369,7 +369,7 @@ export default function App() {
     setIsRefreshing(true);
     setSyncError(null);
 
-    const targetUrl = config.webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
+    const targetUrl = config.webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyLRZciGSmPeOitVGg1FBAGJnww54V32JvduopLa9LTlIo1iCL-k8ojeRZ3veHHYDNXVg/exec';
     
     try {
       const liveData = await fetchLiveOrders(targetUrl);
