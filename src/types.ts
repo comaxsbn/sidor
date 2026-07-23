@@ -26,6 +26,11 @@ export interface Order {
   latitude?: number;
   longitude?: number;
   driverName?: string;
+  noaAnalysis?: string;
+  depositBales?: number;
+  depositPallets?: number;
+  depositDrums?: number;
+  depositBlockPallets?: number;
   depositStatusBags?: string;
   depositStatusPallets?: string;
   signatureDetected?: boolean;

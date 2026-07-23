@@ -67,12 +67,15 @@ export async function getOrdersFromFirestore(): Promise<Order[]> {
     const ordersCol = collection(db, ORDERS_COLLECTION);
     const q = query(ordersCol);
     const snapshot = await getDocs(q);
-    const ordersList: Order[] = [];
+    const ordersMap = new Map<string, Order>();
     
     snapshot.forEach((docSnap) => {
-      ordersList.push({ id: docSnap.id, ...docSnap.data() } as Order);
+      const data = docSnap.data() as Order;
+      const finalId = docSnap.id || data.id || `doc-${Math.random().toString(36).substring(2)}`;
+      ordersMap.set(finalId, { ...data, id: finalId });
     });
     
+    const ordersList = Array.from(ordersMap.values());
     // Sort descending by timestamp safely
     return ordersList.sort((a, b) => safeGetTime(b.timestamp) - safeGetTime(a.timestamp));
   } catch (error) {
@@ -141,12 +144,15 @@ export async function getAuditLogsFromFirestore(): Promise<AuditLogEntry[]> {
     const logsCol = collection(db, AUDIT_LOGS_COLLECTION);
     const q = query(logsCol);
     const snapshot = await getDocs(q);
-    const logsList: AuditLogEntry[] = [];
+    const logsMap = new Map<string, AuditLogEntry>();
     
     snapshot.forEach((docSnap) => {
-      logsList.push({ id: docSnap.id, ...docSnap.data() } as AuditLogEntry);
+      const data = docSnap.data() as AuditLogEntry;
+      const finalId = docSnap.id || data.id || `log-${Math.random().toString(36).substring(2)}`;
+      logsMap.set(finalId, { ...data, id: finalId });
     });
     
+    const logsList = Array.from(logsMap.values());
     // Sort descending by timestamp safely
     return logsList.sort((a, b) => safeGetTime(b.timestamp) - safeGetTime(a.timestamp));
   } catch (error) {
@@ -203,10 +209,13 @@ export function subscribeToOrders(
   const ordersCol = collection(db, ORDERS_COLLECTION);
   const q = query(ordersCol);
   return onSnapshot(q, (snapshot) => {
-    const ordersList: Order[] = [];
+    const ordersMap = new Map<string, Order>();
     snapshot.forEach((docSnap) => {
-      ordersList.push({ id: docSnap.id, ...docSnap.data() } as Order);
+      const data = docSnap.data() as Order;
+      const finalId = docSnap.id || data.id || `doc-${Math.random().toString(36).substring(2)}`;
+      ordersMap.set(finalId, { ...data, id: finalId });
     });
+    const ordersList = Array.from(ordersMap.values());
     // Sort descending by timestamp safely
     const sorted = ordersList.sort((a, b) => safeGetTime(b.timestamp) - safeGetTime(a.timestamp));
     onUpdate(sorted);
@@ -223,10 +232,13 @@ export function subscribeToAuditLogs(
   const logsCol = collection(db, AUDIT_LOGS_COLLECTION);
   const q = query(logsCol);
   return onSnapshot(q, (snapshot) => {
-    const logsList: AuditLogEntry[] = [];
+    const logsMap = new Map<string, AuditLogEntry>();
     snapshot.forEach((docSnap) => {
-      logsList.push({ id: docSnap.id, ...docSnap.data() } as AuditLogEntry);
+      const data = docSnap.data() as AuditLogEntry;
+      const finalId = docSnap.id || data.id || `log-${Math.random().toString(36).substring(2)}`;
+      logsMap.set(finalId, { ...data, id: finalId });
     });
+    const logsList = Array.from(logsMap.values());
     // Sort descending by timestamp safely
     const sorted = logsList.sort((a, b) => safeGetTime(b.timestamp) - safeGetTime(a.timestamp));
     onUpdate(sorted);

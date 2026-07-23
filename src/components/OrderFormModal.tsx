@@ -26,6 +26,12 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [status, setStatus] = useState<OrderStatus>('pending');
   const [notes, setNotes] = useState('');
+  const [driverName, setDriverName] = useState('');
+  const [depositBales, setDepositBales] = useState<number | undefined>(undefined);
+  const [depositPallets, setDepositPallets] = useState<number | undefined>(undefined);
+  const [depositDrums, setDepositDrums] = useState<number | undefined>(undefined);
+  const [depositBlockPallets, setDepositBlockPallets] = useState<number | undefined>(undefined);
+  const [noaAnalysis, setNoaAnalysis] = useState('');
   const [items, setItems] = useState<OrderItem[]>([
     { id: '1', sku: 'SBN-PL-01', name: 'משטח עץ תקני 120x80', quantity: 2, price: 85 }
   ]);
@@ -40,6 +46,12 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
       setDeliveryAddress(initialOrder.deliveryAddress);
       setStatus(initialOrder.status);
       setNotes(initialOrder.notes || '');
+      setDriverName(initialOrder.driverName || '');
+      setDepositBales(initialOrder.depositBales);
+      setDepositPallets(initialOrder.depositPallets);
+      setDepositDrums(initialOrder.depositDrums);
+      setDepositBlockPallets(initialOrder.depositBlockPallets);
+      setNoaAnalysis(initialOrder.noaAnalysis || '');
       setItems(initialOrder.items && initialOrder.items.length > 0 ? initialOrder.items : [
         { id: '1', sku: 'SBN-PL-01', name: 'משטח עץ תקני 120x80', quantity: 1, price: 85 }
       ]);
@@ -51,6 +63,12 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
       setDeliveryAddress('');
       setStatus('pending');
       setNotes('');
+      setDriverName('');
+      setDepositBales(undefined);
+      setDepositPallets(undefined);
+      setDepositDrums(undefined);
+      setDepositBlockPallets(undefined);
+      setNoaAnalysis('');
       setItems([
         { id: '1', sku: 'SBN-PL-01', name: 'משטח עץ תקני 120x80', quantity: 2, price: 85 }
       ]);
@@ -103,7 +121,14 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         status,
         totalAmount,
         notes: notes || undefined,
-        driverName: initialOrder ? initialOrder.driverName : undefined
+        driverName: driverName || undefined,
+        depositBales: depositBales !== undefined ? Number(depositBales) : undefined,
+        depositPallets: depositPallets !== undefined ? Number(depositPallets) : undefined,
+        depositDrums: depositDrums !== undefined ? Number(depositDrums) : undefined,
+        depositBlockPallets: depositBlockPallets !== undefined ? Number(depositBlockPallets) : undefined,
+        noaAnalysis: noaAnalysis || undefined,
+        latitude: initialOrder?.latitude,
+        longitude: initialOrder?.longitude
       };
 
       await onSave(orderPayload);
@@ -225,20 +250,94 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
               </div>
             </div>
 
-            {/* Delivery Address */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-blue-600" />
-                {isHe ? 'כתובת אספקה מלאה' : 'Delivery Address'}
+            {/* Delivery Address & Driver */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-blue-600" />
+                  {isHe ? 'כתובת אספקה מלאה' : 'Delivery Address'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+                  placeholder={isHe ? 'לדוגמה: דרך יפו 45, תל אביב' : 'e.g. Main St 10, Tel Aviv'}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 text-indigo-600" />
+                  {isHe ? 'נהג מוקצה' : 'Assigned Driver'}
+                </label>
+                <select
+                  value={driverName}
+                  onChange={(e) => setDriverName(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
+                >
+                  <option value="">{isHe ? 'ללא נהג (ממתין)' : 'Unassigned'}</option>
+                  <option value="חכמת">🏗️ {isHe ? 'חכמת (מנוף)' : 'Hikmat'}</option>
+                  <option value="עלי">🚛 {isHe ? 'עלי (משאית)' : 'Ali'}</option>
+                  <option value="דניאל">🚐 {isHe ? 'דניאל (מסחרית)' : 'Daniel'}</option>
+                  <option value="יוסף">🚚 {isHe ? 'יוסף (מנוף)' : 'Yousef'}</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 4 Deposit Counters Section (SabanOS 16-Column Schema) */}
+            <div className="bg-purple-50/50 border border-purple-100 p-3.5 rounded-xl space-y-2">
+              <label className="block text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                <Package className="h-3.5 w-3.5 text-purple-600" />
+                {isHe ? 'פקדונות אריזה וציוד (חביות, בלות, משטחים)' : 'Deposits Tracking'}
               </label>
-              <input
-                type="text"
-                required
-                value={deliveryAddress}
-                onChange={(e) => setDeliveryAddress(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
-                placeholder={isHe ? 'לדוגמה: דרך יפו 45, תל אביב' : 'e.g. Main St 10, Tel Aviv'}
-              />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-600 block mb-1">📦 {isHe ? 'פקדונות בלות' : 'Bales'}:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={depositBales ?? ''}
+                    onChange={(e) => setDepositBales(e.target.value === '' ? undefined : Number(e.target.value))}
+                    className="w-full rounded-lg border border-purple-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-purple-500 text-center"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-600 block mb-1">🪵 {isHe ? 'פקדונות משטחים' : 'Pallets'}:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={depositPallets ?? ''}
+                    onChange={(e) => setDepositPallets(e.target.value === '' ? undefined : Number(e.target.value))}
+                    className="w-full rounded-lg border border-purple-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-purple-500 text-center"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-600 block mb-1">🛢️ {isHe ? 'פקדונות חביות' : 'Drums'}:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={depositDrums ?? ''}
+                    onChange={(e) => setDepositDrums(e.target.value === '' ? undefined : Number(e.target.value))}
+                    className="w-full rounded-lg border border-purple-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-purple-500 text-center"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-600 block mb-1">🧱 {isHe ? 'משטחי בלוק' : 'Block Pallets'}:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={depositBlockPallets ?? ''}
+                    onChange={(e) => setDepositBlockPallets(e.target.value === '' ? undefined : Number(e.target.value))}
+                    className="w-full rounded-lg border border-purple-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-purple-500 text-center"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Items List */}

@@ -27,7 +27,7 @@ import {
   Edit3
 } from 'lucide-react';
 import { Order, OrderStatus, Language, AuditLogEntry } from '../types';
-import { translate, formatDate, MOCK_PRODUCTS } from '../utils/api';
+import { translate, formatDate, MOCK_PRODUCTS, calculateDepositsFromItems } from '../utils/api';
 import { motion } from 'motion/react';
 import { QuickFilter } from './QuickFilter';
 import { DispatchTrendChart } from './DispatchTrendChart';
@@ -1288,7 +1288,7 @@ export default function DispatchTable({
                   const isExpanded = !!expandedOrders[order.id];
                   
                   return (
-                    <React.Fragment key={order.id}>
+                    <React.Fragment key={`${order.id || 'ord'}-${idx}`}>
                       {/* Main Row with polished staggered animation */}
                       <motion.tr 
                         id={`order-row-${order.orderNumber}`}
@@ -1478,6 +1478,26 @@ export default function DispatchTable({
                                         {formatDate(order.timestamp, lang)}
                                       </div>
                                     </div>
+                                    {order.driverName && (
+                                      <div className="flex items-start gap-1.5">
+                                        <Truck className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                        <div>
+                                          <span className="font-bold text-slate-800">{isHe ? 'נהג מוקצה: ' : 'Driver: '}</span>
+                                          <span className="font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{order.driverName}</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {(order.latitude !== undefined || order.longitude !== undefined) && (
+                                      <div className="flex items-start gap-1.5">
+                                        <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                        <div>
+                                          <span className="font-bold text-slate-800">{isHe ? 'קואורדינטות (GPS): ' : 'Coordinates: '}</span>
+                                          <span className="font-mono text-[11px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                                            {order.latitude ?? '—'}, {order.longitude ?? '—'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    )}
                                     {order.notes && (
                                       <div className="mt-2 bg-amber-50/70 border border-amber-100 rounded-lg p-2.5 text-amber-900">
                                         <span className="font-bold block mb-0.5">{isHe ? 'הערות מיוחדות לסידור:' : 'Dispatch Note:'}</span>
@@ -1485,6 +1505,55 @@ export default function DispatchTable({
                                       </div>
                                     )}
                                   </div>
+
+                                  {/* 16-Column Deposits Tracker Section */}
+                                  {(() => {
+                                    const computedDeposits = calculateDepositsFromItems(order);
+                                    return (
+                                      <div className="rounded-xl border border-purple-200/80 bg-purple-50/30 p-3 space-y-2 text-xs">
+                                        <h6 className="font-bold text-purple-900 flex items-center justify-between">
+                                          <span className="flex items-center gap-1.5">
+                                            <Package className="h-3.5 w-3.5 text-purple-600" />
+                                            {isHe ? 'סיכום פקדונות תקניים (16 עמודות)' : 'Standard Deposits Manifest'}
+                                          </span>
+                                          <span className="text-[10px] text-purple-700 font-semibold bg-purple-100/80 px-2 py-0.5 rounded-full border border-purple-200/50">
+                                            {isHe ? 'חישוב מדויק מתיאור פריטים' : 'Accurate Item Breakdown'}
+                                          </span>
+                                        </h6>
+                                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                                          <div className="bg-white border border-purple-100 rounded-lg p-2 flex items-center justify-between shadow-2xs">
+                                            <span className="text-slate-600 font-medium">📦 {isHe ? 'בלות' : 'Bales'}:</span>
+                                            <span className="font-mono font-bold text-purple-800 text-xs">{computedDeposits.depositBales}</span>
+                                          </div>
+                                          <div className="bg-white border border-purple-100 rounded-lg p-2 flex items-center justify-between shadow-2xs">
+                                            <span className="text-slate-600 font-medium">🪵 {isHe ? 'משטחים' : 'Pallets'}:</span>
+                                            <span className="font-mono font-bold text-purple-800 text-xs">{computedDeposits.depositPallets}</span>
+                                          </div>
+                                          <div className="bg-white border border-purple-100 rounded-lg p-2 flex items-center justify-between shadow-2xs">
+                                            <span className="text-slate-600 font-medium">🛢️ {isHe ? 'חביות' : 'Drums'}:</span>
+                                            <span className="font-mono font-bold text-purple-800 text-xs">{computedDeposits.depositDrums}</span>
+                                          </div>
+                                          <div className="bg-white border border-purple-100 rounded-lg p-2 flex items-center justify-between shadow-2xs">
+                                            <span className="text-slate-600 font-medium">🧱 {isHe ? 'משטחי בלוק' : 'Block Pallets'}:</span>
+                                            <span className="font-mono font-bold text-purple-800 text-xs">{computedDeposits.depositBlockPallets}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Noa AI Analysis Card */}
+                                  {order.noaAnalysis && (
+                                    <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/80 to-blue-50/80 p-3 space-y-1.5 text-xs text-indigo-950">
+                                      <div className="flex items-center gap-1.5 font-bold text-indigo-900">
+                                        <span className="text-sm">🤖</span>
+                                        <span>{isHe ? 'ניתוח נועה AI' : 'Noa AI Analysis'}</span>
+                                      </div>
+                                      <p className="text-[11px] leading-relaxed font-medium text-indigo-800 whitespace-pre-wrap">
+                                        {order.noaAnalysis}
+                                      </p>
+                                    </div>
+                                  )}
 
                                   {/* Dynamic Fulfillment Delay Analyzer inside expandable section */}
                                   {order.status !== 'cancelled' && order.status !== 'delivered' && (

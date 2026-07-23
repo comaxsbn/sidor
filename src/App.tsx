@@ -12,7 +12,8 @@ import {
   updateLiveOrderDetails,
   deleteLiveOrder,
   getStoredAuditLogs,
-  saveStoredAuditLogs
+  saveStoredAuditLogs,
+  deduplicateOrders
 } from './utils/api';
 import { 
   getOrdersFromFirestore, 
@@ -62,7 +63,12 @@ import {
   Menu,
   X,
   Keyboard,
-  Mail
+  Mail,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pin,
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'motion/react';
@@ -103,6 +109,21 @@ export default function App() {
   }, [darkMode]);
 
   const isHe = lang === 'he';
+
+  // Desktop Sidebar Collapse & Auto-Hide state (5 seconds)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  const [isSidebarPinned, setIsSidebarPinned] = useState<boolean>(false);
+
+  // Auto-collapse sidebar after 5 seconds of inactivity when expanded & not pinned
+  useEffect(() => {
+    if (isSidebarCollapsed || isSidebarPinned) return;
+
+    const timer = setTimeout(() => {
+      setIsSidebarCollapsed(true);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [isSidebarCollapsed, isSidebarPinned, currentTab]);
 
   // Auto-Refresh state & context menu state
   const [isAutoRefresh, setIsAutoRefresh] = useState<boolean>(() => {
@@ -264,8 +285,9 @@ export default function App() {
             setIsLoading(false);
           }
         } else {
-          setOrders(liveOrders);
-          saveStoredOrders(liveOrders);
+          const cleanOrders = deduplicateOrders(liveOrders);
+          setOrders(cleanOrders);
+          saveStoredOrders(cleanOrders);
           setIsLoading(false);
         }
       },
@@ -351,11 +373,12 @@ export default function App() {
     
     try {
       const liveData = await fetchLiveOrders(targetUrl);
-      setOrders(liveData);
-      saveStoredOrders(liveData);
+      const cleanLiveData = deduplicateOrders(liveData);
+      setOrders(cleanLiveData);
+      saveStoredOrders(cleanLiveData);
       
       // Update Firestore with the fresh live orders list
-      await syncOrdersToFirestore(liveData);
+      await syncOrdersToFirestore(cleanLiveData);
       
       console.log(isHe ? 'הנתונים סונכרנו בהצלחה!' : 'Logistics stream updated!');
     } catch (err: any) {
@@ -878,49 +901,96 @@ export default function App() {
       </AnimatePresence>
 
       {/* 1. Elegant Dashboard Sidebar (Desktop Only) */}
-      <aside className="w-64 bg-slate-900 flex flex-col text-slate-300 shrink-0 hidden md:flex">
-        {/* Brand Header */}
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 shadow-md shadow-blue-500/20">
-            <span className="font-mono text-lg font-bold tracking-tight text-white">S</span>
+      <aside 
+        onMouseEnter={() => {
+          if (!isSidebarPinned) setIsSidebarCollapsed(false);
+        }}
+        onMouseLeave={() => {
+          if (!isSidebarPinned) {
+            // Auto-collapse handled by effect or when leaving
+          }
+        }}
+        className={`${
+          isSidebarCollapsed ? 'w-16' : 'w-64'
+        } bg-slate-900 flex flex-col text-slate-300 shrink-0 hidden md:flex transition-all duration-300 z-30 relative group shadow-xl border-r border-slate-800`}
+      >
+        {/* Brand Header & Pin Controls */}
+        <div className="p-4 border-b border-slate-800/80 flex items-center justify-between overflow-hidden shrink-0 h-16">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-md shadow-blue-500/20">
+              <span className="font-mono text-lg font-bold tracking-tight text-white">S</span>
+            </div>
+            {!isSidebarCollapsed && (
+              <div className="min-w-0 transition-opacity duration-200">
+                <h1 className="font-sans text-base font-extrabold tracking-tight text-white leading-none whitespace-nowrap">
+                  Saban<span className="text-blue-500">OS</span>
+                </h1>
+                <p className="text-[10px] font-medium text-slate-400 mt-1 uppercase tracking-wider whitespace-nowrap">
+                  {isHe ? 'לוגיסטיקה ושרשרת אספקה' : 'Logistics Control'}
+                </p>
+              </div>
+            )}
           </div>
-          <div>
-            <h1 className="font-sans text-lg font-extrabold tracking-tight text-white leading-none">
-              Saban<span className="text-blue-500">OS</span>
-            </h1>
-            <p className="text-[10px] font-medium text-slate-500 mt-1 uppercase tracking-wider">
-              {isHe ? 'לוגיסטיקה ושרשרת אספקה' : 'Logistics Control'}
-            </p>
-          </div>
+
+          {!isSidebarCollapsed && (
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => setIsSidebarPinned(prev => !prev)}
+                className={`p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all ${
+                  isSidebarPinned ? 'text-blue-400 bg-slate-800/80' : ''
+                }`}
+                title={isSidebarPinned ? (isHe ? 'בטל נעץ' : 'Unpin Sidebar') : (isHe ? 'נעץ תפריט צד (מנע הסתרה)' : 'Pin Sidebar')}
+              >
+                <Pin className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setIsSidebarCollapsed(true)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
+                title={isHe ? 'קפל תפריט צד' : 'Collapse Sidebar'}
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Sidebar Navigation Links */}
-        <nav className="flex-1 px-4 py-6 space-y-1">
+        <nav className="flex-1 px-2.5 py-4 space-y-1.5 overflow-x-hidden overflow-y-auto">
           <button
             id="sidebar-dispatch-btn"
             onClick={() => setCurrentTab('dispatch')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            title={isHe ? 'לוח סידור ראשי' : 'Dispatch Control'}
+            className={`w-full flex items-center gap-3 ${
+              isSidebarCollapsed ? 'justify-center px-0' : 'px-3'
+            } py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               currentTab === 'dispatch'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/10'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/70'
             }`}
           >
             <LayoutDashboard className="h-4.5 w-4.5 shrink-0" />
-            <span>{isHe ? 'לוח סידור ראשי' : 'Dispatch Control'}</span>
+            {!isSidebarCollapsed && (
+              <span className="truncate text-right">{isHe ? 'לוח סידור ראשי' : 'Dispatch Control'}</span>
+            )}
           </button>
 
           <button
             id="sidebar-integrations-btn"
             onClick={() => setCurrentTab('integrations')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            title={isHe ? 'סנכרון מיילים ואינטגרציות' : 'Email Sync & Ingestion'}
+            className={`w-full flex items-center justify-between ${
+              isSidebarCollapsed ? 'justify-center px-0' : 'px-3'
+            } py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               currentTab === 'integrations'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/10'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/70'
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
               <Mail className="h-4.5 w-4.5 shrink-0" />
-              <span>{isHe ? 'סנכרון מיילים ואינטגרציות' : 'Email Sync & Ingestion'}</span>
+              {!isSidebarCollapsed && (
+                <span className="truncate text-right">{isHe ? 'אינטגרציות ומיילים' : 'Integrations'}</span>
+              )}
             </div>
             <span className="flex h-2 w-2 rounded-full bg-indigo-400 animate-pulse shrink-0"></span>
           </button>
@@ -928,41 +998,56 @@ export default function App() {
           <button
             id="sidebar-analytics-btn"
             onClick={() => setCurrentTab('analytics')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            title={isHe ? 'דוחות וניתוח מוצרים' : 'Product Analytics'}
+            className={`w-full flex items-center gap-3 ${
+              isSidebarCollapsed ? 'justify-center px-0' : 'px-3'
+            } py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               currentTab === 'analytics'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/10'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/70'
             }`}
           >
             <BarChart3 className="h-4.5 w-4.5 shrink-0" />
-            <span>{isHe ? 'דוחות וניתוח מוצרים' : 'Product Analytics'}</span>
+            {!isSidebarCollapsed && (
+              <span className="truncate text-right">{isHe ? 'דוחות וניתוח מוצרים' : 'Analytics'}</span>
+            )}
           </button>
 
           <button
             id="sidebar-map-btn"
             onClick={() => setCurrentTab('map')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            title={isHe ? 'מפת סידור הפצה' : 'Logistics Map'}
+            className={`w-full flex items-center gap-3 ${
+              isSidebarCollapsed ? 'justify-center px-0' : 'px-3'
+            } py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               currentTab === 'map'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/10'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/70'
             }`}
           >
             <Map className="h-4.5 w-4.5 shrink-0" />
-            <span>{isHe ? 'מפת סידור הפצה' : 'Logistics Map'}</span>
+            {!isSidebarCollapsed && (
+              <span className="truncate text-right">{isHe ? 'מפת סידור הפצה' : 'Map'}</span>
+            )}
           </button>
 
           <button
             id="sidebar-noa-btn"
             onClick={() => setCurrentTab('noa-ai')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            title={isHe ? 'נועה Noa AI (צ׳אט)' : 'Noa AI Assistant'}
+            className={`w-full flex items-center justify-between ${
+              isSidebarCollapsed ? 'justify-center px-0' : 'px-3'
+            } py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               currentTab === 'noa-ai'
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/10'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/70'
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
               <MessageSquare className="h-4.5 w-4.5 shrink-0" />
-              <span>{isHe ? 'נועה Noa AI (צ׳אט)' : 'Noa AI Assistant'}</span>
+              {!isSidebarCollapsed && (
+                <span className="truncate text-right">{isHe ? 'נועה Noa AI (צ׳אט)' : 'Noa AI'}</span>
+              )}
             </div>
             <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
           </button>
@@ -970,43 +1055,55 @@ export default function App() {
           <button
             id="sidebar-morning-btn"
             onClick={() => setCurrentTab('morning-report')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            title={isHe ? 'דוח בוקר לוגיסטי' : 'Logistics Briefing'}
+            className={`w-full flex items-center gap-3 ${
+              isSidebarCollapsed ? 'justify-center px-0' : 'px-3'
+            } py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               currentTab === 'morning-report'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/10'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/70'
             }`}
           >
             <Sparkles className="h-4.5 w-4.5 shrink-0 text-amber-400" />
-            <span>{isHe ? 'דוח בוקר לוגיסטי' : 'Logistics Briefing'}</span>
+            {!isSidebarCollapsed && (
+              <span className="truncate text-right">{isHe ? 'דוח בוקר לוגיסטי' : 'Morning Report'}</span>
+            )}
           </button>
 
           <button
             id="sidebar-history-btn"
             onClick={() => setCurrentTab('order-history')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+            title={isHe ? 'היסטוריית סטטוסים' : 'Order History'}
+            className={`w-full flex items-center gap-3 ${
+              isSidebarCollapsed ? 'justify-center px-0' : 'px-3'
+            } py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               currentTab === 'order-history'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/10'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/70'
             }`}
           >
             <History className="h-4.5 w-4.5 shrink-0" />
-            <span>{isHe ? 'היסטוריית סטטוסים' : 'Order History'}</span>
+            {!isSidebarCollapsed && (
+              <span className="truncate text-right">{isHe ? 'היסטוריית סטטוסים' : 'Order History'}</span>
+            )}
           </button>
         </nav>
 
         {/* Shift Manager Block (Footer) */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/40">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 border border-slate-700 text-slate-300">
-              <User className="h-4 w-4" />
+        <div className="p-3.5 border-t border-slate-800 bg-slate-950/50 shrink-0">
+          <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-800 border border-slate-700 text-slate-300">
+              <User className="h-4.5 w-4.5" />
             </div>
-            <div>
-              <p className="text-xs font-bold text-white">{isHe ?' ראמי מסארוה' : 'Avi Cohen'}</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <p className="text-[10px] font-medium text-slate-500">{isHe ? 'מנהל תורן פעיל' : 'Active Shift Manager'}</p>
+            {!isSidebarCollapsed && (
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-white truncate">{isHe ? 'ראמי מסארוה' : 'Avi Cohen'}</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                  <p className="text-[10px] font-medium text-slate-400 truncate">{isHe ? 'מנהל תורן פעיל' : 'Shift Manager'}</p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </aside>
@@ -1017,6 +1114,15 @@ export default function App() {
         {/* Top Header Row */}
         <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between px-6 lg:px-8 shrink-0">
           <div className="flex items-center gap-3">
+            {/* Desktop Sidebar Toggle Button */}
+            <button
+              onClick={() => setIsSidebarCollapsed(prev => !prev)}
+              className="hidden md:flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/80 bg-white dark:bg-slate-800 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer shadow-xs"
+              title={isSidebarCollapsed ? (isHe ? 'הרחב תפריט צד (מתקפל אוטומטית ב-5 שניות)' : 'Expand Sidebar') : (isHe ? 'קפל תפריט צד' : 'Collapse Sidebar')}
+            >
+              {isSidebarCollapsed ? <PanelLeftOpen className="h-4.5 w-4.5 text-blue-600" /> : <PanelLeftClose className="h-4.5 w-4.5" />}
+            </button>
+
             {/* Hamburger menu & left brand indicator for mobile */}
             <div className="flex md:hidden items-center gap-2">
               <button

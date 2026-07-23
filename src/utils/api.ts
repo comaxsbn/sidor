@@ -120,8 +120,8 @@ const STORAGE_CONFIG_KEY = 'sabanos_config_v1';
 const STORAGE_ORDERS_KEY = 'sabanos_orders_v1';
 
 export function getStoredConfig(): AppConfig {
-  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyk1zm83bOdA_1H6qTPvoEX1k-NY3klb3YnfWngVFOlrAxnBy9P2Bf8BNnbcgaHkWZdOg/exec';
-  const OLD_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbw1JO6lR7tqVFouqZvDGRx2VOWS2tcIJbtFdMCUQVAsrjIuZu5YLVoMmxoDPkhmWj5jyQ/exec';
+  const DEFAULT_URL = import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzX0XsXt_gByeBSElc0Cnpc_3tSqsq-cyaqZx8mBRuiuReN97yXk5OEkCOQqQqPVE8Rsg/exec';
+  const OLD_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxHm1GO0CNvCiTDoPwuLzPxFIzg5izfyLTH5lUP1OHu83tKUEEETtqTvZkXjan9By0UyQ/exec';
   const saved = localStorage.getItem(STORAGE_CONFIG_KEY);
   if (saved) {
     try {
@@ -150,12 +150,26 @@ export function saveStoredConfig(config: AppConfig): void {
   localStorage.setItem(STORAGE_CONFIG_KEY, JSON.stringify(forcedConfig));
 }
 
+export function deduplicateOrders(orders: Order[]): Order[] {
+  if (!Array.isArray(orders)) return [];
+  const seenMap = new Map<string, Order>();
+  orders.forEach((o, index) => {
+    let id = o.id || `order-${o.orderNumber || index}`;
+    if (seenMap.has(id)) {
+      id = `${id}-${index}-${Math.random().toString(36).substring(2, 6)}`;
+    }
+    seenMap.set(id, { ...o, id });
+  });
+  return Array.from(seenMap.values());
+}
+
 export function getStoredOrders(): Order[] {
   const saved = localStorage.getItem(STORAGE_ORDERS_KEY);
   if (saved) {
     try {
       const parsed = JSON.parse(saved) as Order[];
-      return parsed.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      const deduped = deduplicateOrders(parsed);
+      return deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     } catch (e) {
       // fallback
     }
@@ -163,13 +177,15 @@ export function getStoredOrders(): Order[] {
   
   // Initialize with generateMockOrders and save
   const mock = generateMockOrders();
-  const sortedMock = mock.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const dedupedMock = deduplicateOrders(mock);
+  const sortedMock = dedupedMock.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(sortedMock));
   return sortedMock;
 }
 
 export function saveStoredOrders(orders: Order[]): void {
-  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  const deduped = deduplicateOrders(orders);
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(deduped));
 }
 
 const STORAGE_AUDIT_LOGS_KEY = 'sabanos_audit_logs_v1';
@@ -473,6 +489,104 @@ function parseSingleLineItem(line: string, orderIdx: number, itemIdx: number): O
   };
 }
 
+/**
+ * Calculate deposits (bales, pallets, drums, block pallets) accurately from item breakdown list
+ * if explicit deposit values are missing or zero.
+ */
+export function calculateDepositsFromItems(order: Partial<Order>): {
+  depositBales: number;
+  depositPallets: number;
+  depositDrums: number;
+  depositBlockPallets: number;
+} {
+  const items = order.items || [];
+  const rawText = (order.itemsRawString || items.map(i => `${i.name} ${i.quantity}`).join(' ')).toLowerCase();
+
+  // 1. Bales (בלות / שק גדול / ביג בג)
+  let bales = order.depositBales;
+  if (bales === undefined || bales === null || bales === 0) {
+    let sum = 0;
+    items.forEach(i => {
+      const name = (i.name || '').toLowerCase();
+      const sku = (i.sku || '').toLowerCase();
+      if (name.includes('בלה') || name.includes('בלות') || name.includes('שק גדול') || name.includes('ביג בג') || name.includes('big bag') || sku === '60002') {
+        sum += i.quantity || 1;
+      }
+    });
+    if (sum === 0 && rawText) {
+      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:בלה|בלות|שק גדול|ביג בג)/);
+      if (m) sum = parseInt(m[1], 10);
+    }
+    bales = sum;
+  }
+
+  // 2. Pallets (משטחים תקניים / פלטה / חישוב 10 שקים כבדים = משטח)
+  let pallets = order.depositPallets;
+  if (pallets === undefined || pallets === null || pallets === 0) {
+    let sum = 0;
+    let heavyCount = 0;
+    items.forEach(i => {
+      const name = (i.name || '').toLowerCase();
+      const sku = (i.sku || '').toLowerCase();
+      if (name.includes('משטח עץ') || name.includes('משטח סבן') || (name.includes('משטח') && !name.includes('בלוק')) || name.includes('פלטה') || name.includes('pallet') || sku === '60060') {
+        sum += i.quantity || 1;
+      } else if (name.includes('שק') || name.includes('25 ק"ג') || name.includes('מלט') || name.includes('טיח') || name.includes('דבק')) {
+        heavyCount += i.quantity || 1;
+      }
+    });
+    if (sum > 0) {
+      pallets = sum;
+    } else if (heavyCount > 0) {
+      pallets = Math.ceil(heavyCount / 10);
+    } else {
+      pallets = 0;
+    }
+  }
+
+  // 3. Drums (חביות / תוף)
+  let drums = order.depositDrums;
+  if (drums === undefined || drums === null || drums === 0) {
+    let sum = 0;
+    items.forEach(i => {
+      const name = (i.name || '').toLowerCase();
+      const sku = (i.sku || '').toLowerCase();
+      if (name.includes('חבית') || name.includes('חביות') || name.includes('תוף') || name.includes('drum') || name.includes('barrel') || sku === '60003') {
+        sum += i.quantity || 1;
+      }
+    });
+    if (sum === 0 && rawText) {
+      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:חבית|חביות|תוף)/);
+      if (m) sum = parseInt(m[1], 10);
+    }
+    drums = sum;
+  }
+
+  // 4. Block Pallets (משטחי בלוק)
+  let blockPallets = order.depositBlockPallets;
+  if (blockPallets === undefined || blockPallets === null || blockPallets === 0) {
+    let sum = 0;
+    items.forEach(i => {
+      const name = (i.name || '').toLowerCase();
+      const sku = (i.sku || '').toLowerCase();
+      if (name.includes('משטח בלוק') || name.includes('בלוקים') || name.includes('משטחי בלוק') || name.includes('block pallet')) {
+        sum += i.quantity || 1;
+      }
+    });
+    if (sum === 0 && rawText) {
+      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:משטח בלוק|בלוקים|משטחי בלוק)/);
+      if (m) sum = parseInt(m[1], 10);
+    }
+    blockPallets = sum;
+  }
+
+  return {
+    depositBales: bales,
+    depositPallets: pallets,
+    depositDrums: drums,
+    depositBlockPallets: blockPallets
+  };
+}
+
 // Helper to extract Spreadsheet ID from a Google Sheets URL or ID
 export function extractSpreadsheetId(url: string): string | null {
   if (!url) return null;
@@ -588,19 +702,24 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
 
     const parsedOrders = rawList.map((row: any, idx: number) => {
       if (Array.isArray(row)) {
-        // Fallback for raw double arrays [timestamp, orderNumber, customerName, warehouse, deliveryAddress, itemsRaw, statusRaw, modelUsed, tokens, messageId]
+        // Fallback for 16-column double arrays:
+        // [0:timestamp, 1:orderNumber, 2:customerName, 3:warehouse, 4:deliveryAddress, 5:driverName, 6:itemsRaw, 7:statusRaw, 8:notes, 9:latitude, 10:longitude, 11:noaAnalysis, 12:depositBales, 13:depositPallets, 14:depositDrums, 15:depositBlockPallets]
         const timestamp = safeToIsoString(row[0]);
         const orderNumber = String(row[1] || `SBN-${10000 + idx}`).trim();
         const customerName = String(row[2] || 'לקוח לא ידוע').trim();
         const warehouse = String(row[3] || 'מחסן החרש').trim();
         const deliveryAddress = String(row[4] || '').trim();
-        const itemsRaw = String(row[5] || '').trim();
-        const statusRaw = String(row[6] || 'pending').trim().toLowerCase();
-        const modelUsed = String(row[7] || '').trim();
-        const tokens = Number(row[8]) || 0;
-        const messageId = String(row[9] || '').trim();
-        const latitude = row[10] ? Number(row[10]) : undefined;
-        const longitude = row[11] ? Number(row[11]) : undefined;
+        const driverName = row[5] ? String(row[5]).trim() : undefined;
+        const itemsRaw = String(row[6] || '').trim();
+        const statusRaw = String(row[7] || 'pending').trim().toLowerCase();
+        const notes = row[8] ? String(row[8]).trim() : undefined;
+        const latitude = row[9] ? Number(row[9]) : undefined;
+        const longitude = row[10] ? Number(row[10]) : undefined;
+        const noaAnalysis = row[11] ? String(row[11]).trim() : undefined;
+        const depositBales = row[12] !== undefined && row[12] !== '' ? Number(row[12]) : undefined;
+        const depositPallets = row[13] !== undefined && row[13] !== '' ? Number(row[13]) : undefined;
+        const depositDrums = row[14] !== undefined && row[14] !== '' ? Number(row[14]) : undefined;
+        const depositBlockPallets = row[15] !== undefined && row[15] !== '' ? Number(row[15]) : undefined;
 
         const status = ['pending', 'processing', 'delivered', 'cancelled'].includes(statusRaw) 
           ? (statusRaw as OrderStatus) 
@@ -616,15 +735,19 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
           customerName,
           warehouse,
           deliveryAddress,
+          driverName,
           items,
           itemsRawString: itemsRaw,
           status,
+          notes,
           totalAmount,
-          modelUsed,
-          tokens,
-          messageId,
           latitude: latitude && !isNaN(latitude) ? latitude : undefined,
-          longitude: longitude && !isNaN(longitude) ? longitude : undefined
+          longitude: longitude && !isNaN(longitude) ? longitude : undefined,
+          noaAnalysis,
+          depositBales,
+          depositPallets,
+          depositDrums,
+          depositBlockPallets
         };
       } else {
         // Standard typed object returned from Code.js WebApp
@@ -633,6 +756,14 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
         const customerName = String(row.customerName || row.customer || 'לקוח לא ידוע').trim();
         const warehouse = String(row.warehouse || 'מחסן החרש').trim();
         const deliveryAddress = String(row.deliveryAddress || row.address || '').trim();
+        const driverName = row.driverName || row.driver || undefined;
+        const notes = row.notes || undefined;
+        const noaAnalysis = row.noaAnalysis || row.noa || undefined;
+        const depositBales = row.depositBales !== undefined && row.depositBales !== '' ? Number(row.depositBales) : undefined;
+        const depositPallets = row.depositPallets !== undefined && row.depositPallets !== '' ? Number(row.depositPallets) : undefined;
+        const depositDrums = row.depositDrums !== undefined && row.depositDrums !== '' ? Number(row.depositDrums) : undefined;
+        const depositBlockPallets = row.depositBlockPallets !== undefined && row.depositBlockPallets !== '' ? Number(row.depositBlockPallets) : undefined;
+
         // Handle items properly without String(row.items) turning array into "[object Object]"
         const rawItemsData = row.items || row.itemsString || row.itemsRawString || '';
         const items = parseItemsString(rawItemsData, idx);
@@ -647,9 +778,6 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
         }
 
         const statusRaw = String(row.status || 'pending').trim().toLowerCase();
-        const modelUsed = String(row.modelUsed || row.model || '').trim();
-        const tokens = Number(row.tokens) || 0;
-        const messageId = String(row.messageId || '').trim();
         const latitude = row.latitude ? Number(row.latitude) : undefined;
         const longitude = row.longitude ? Number(row.longitude) : undefined;
 
@@ -666,20 +794,32 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
           customerName,
           warehouse,
           deliveryAddress,
+          driverName,
           items,
           itemsRawString,
           status,
+          notes,
           totalAmount,
-          modelUsed,
-          tokens,
-          messageId,
           latitude: latitude && !isNaN(latitude) ? latitude : undefined,
-          longitude: longitude && !isNaN(longitude) ? longitude : undefined
+          longitude: longitude && !isNaN(longitude) ? longitude : undefined,
+          noaAnalysis,
+          depositBales,
+          depositPallets,
+          depositDrums,
+          depositBlockPallets
         };
       }
     });
 
-    return parsedOrders.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const uniqueMap = new Map<string, Order>();
+    parsedOrders.forEach((o, index) => {
+      const key = o.id || `live-${index}-${o.orderNumber}`;
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, { ...o, id: key });
+      }
+    });
+    const uniqueOrders = Array.from(uniqueMap.values());
+    return uniqueOrders.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   } catch (error) {
     console.error('Failed to fetch live orders:', error);
@@ -691,7 +831,7 @@ export async function fetchLiveOrders(webappUrl?: string): Promise<Order[]> {
  * Update order status directly in the Google Sheet via Apps Script WebApp
  */
 export async function updateLiveOrderStatus(webappUrl: string | undefined, orderNumber: string, status: OrderStatus): Promise<boolean> {
-  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbzuaPe5R2qgoXFF43FKdasOgQTMnxRZ6Icb2QfHfcJ8dWGnFIznCkM8GE3OSiE3PVpatg/exec';
+  const targetUrl = webappUrl || import.meta.env.VITE_GOOGLE_WEBAPP_URL || 'https://script.google.com/macros/s/AKfycbyk1zm83bOdA_1H6qTPvoEX1k-NY3klb3YnfWngVFOlrAxnBy9P2Bf8BNnbcgaHkWZdOg/exec';
   if (!targetUrl) return false;
   
   try {
