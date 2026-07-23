@@ -499,90 +499,82 @@ export function calculateDepositsFromItems(order: Partial<Order>): {
   depositBlockPallets: number;
 } {
   const items = order.items || [];
-  const rawText = (order.itemsRawString || items.map(i => `${i.name} ${i.quantity}`).join(' ')).toLowerCase();
 
   // 1. Bales (בלות / שק גדול / ביג בג)
-  let bales = order.depositBales;
-  if (bales === undefined || bales === null || bales === 0) {
-    let sum = 0;
-    items.forEach(i => {
-      const name = (i.name || '').toLowerCase();
-      const sku = (i.sku || '').toLowerCase();
-      if (name.includes('בלה') || name.includes('בלות') || name.includes('שק גדול') || name.includes('ביג בג') || name.includes('big bag') || sku === '60002') {
-        sum += i.quantity || 1;
-      }
-    });
-    if (sum === 0 && rawText) {
-      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:בלה|בלות|שק גדול|ביג בג)/);
-      if (m) sum = parseInt(m[1], 10);
+  let explicitBales = 0;
+  let calculatedBales = 0;
+  items.forEach(i => {
+    const name = (i.name || '').toLowerCase();
+    const sku = (i.sku || '').toLowerCase();
+    const qty = i.quantity || 1;
+    if (sku === '60002' || (name.includes('פקדון') && (name.includes('בלה') || name.includes('שק גדול') || name.includes('ביג בג')))) {
+      explicitBales += qty;
+    } else if (sku === '11511' || sku === '11512' || name.includes('בלה') || name.includes('שק גדול') || name.includes('ביג בג')) {
+      calculatedBales += qty;
     }
-    bales = sum;
-  }
+  });
+  // Anti-double-counting rule: Explicit deposit SKU overrides calculated dictionary deposits completely
+  const finalBales = explicitBales > 0 ? explicitBales : calculatedBales;
 
-  // 2. Pallets (משטחים תקניים / פלטה / חישוב 10 שקים כבדים = משטח)
-  let pallets = order.depositPallets;
-  if (pallets === undefined || pallets === null || pallets === 0) {
-    let sum = 0;
-    let heavyCount = 0;
-    items.forEach(i => {
-      const name = (i.name || '').toLowerCase();
-      const sku = (i.sku || '').toLowerCase();
-      if (name.includes('משטח עץ') || name.includes('משטח סבן') || (name.includes('משטח') && !name.includes('בלוק')) || name.includes('פלטה') || name.includes('pallet') || sku === '60060') {
-        sum += i.quantity || 1;
-      } else if (name.includes('שק') || name.includes('25 ק"ג') || name.includes('מלט') || name.includes('טיח') || name.includes('דבק')) {
-        heavyCount += i.quantity || 1;
-      }
-    });
-    if (sum > 0) {
-      pallets = sum;
-    } else if (heavyCount > 0) {
-      pallets = Math.ceil(heavyCount / 10);
-    } else {
-      pallets = 0;
+  // 2. Pallets (משטחים)
+  let explicitPallets = 0;
+  let calculatedPallets = 0;
+  let heavyCount = 0;
+  items.forEach(i => {
+    const name = (i.name || '').toLowerCase();
+    const sku = (i.sku || '').toLowerCase();
+    const qty = i.quantity || 1;
+    if (sku === '60060' || (name.includes('פקדון') && (name.includes('משטח') || name.includes('פלטה')) && !name.includes('בלוק'))) {
+      explicitPallets += qty;
+    } else if (name.includes('משטח עץ') || name.includes('משטח סבן') || (name.includes('משטח') && !name.includes('בלוק')) || name.includes('פלטה')) {
+      calculatedPallets += qty;
+    } else if (name.includes('שק') || name.includes('25 ק"ג') || name.includes('מלט') || name.includes('טיח') || name.includes('דבק')) {
+      heavyCount += qty;
     }
+  });
+  if (calculatedPallets === 0 && heavyCount > 0) {
+    calculatedPallets = Math.ceil(heavyCount / 10);
   }
+  // Anti-double-counting rule: Explicit overrides calculated
+  const finalPallets = explicitPallets > 0 ? explicitPallets : calculatedPallets;
 
   // 3. Drums (חביות / תוף)
-  let drums = order.depositDrums;
-  if (drums === undefined || drums === null || drums === 0) {
-    let sum = 0;
-    items.forEach(i => {
-      const name = (i.name || '').toLowerCase();
-      const sku = (i.sku || '').toLowerCase();
-      if (name.includes('חבית') || name.includes('חביות') || name.includes('תוף') || name.includes('drum') || name.includes('barrel') || sku === '60003') {
-        sum += i.quantity || 1;
-      }
-    });
-    if (sum === 0 && rawText) {
-      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:חבית|חביות|תוף)/);
-      if (m) sum = parseInt(m[1], 10);
+  let explicitDrums = 0;
+  let calculatedDrums = 0;
+  items.forEach(i => {
+    const name = (i.name || '').toLowerCase();
+    const sku = (i.sku || '').toLowerCase();
+    const qty = i.quantity || 1;
+    if (sku === '60003' || (name.includes('פקדון') && (name.includes('חבית') || name.includes('תוף')))) {
+      explicitDrums += qty;
+    } else if (name.includes('חבית') || name.includes('תוף') || name.includes('drum')) {
+      calculatedDrums += qty;
     }
-    drums = sum;
-  }
+  });
+  // Anti-double-counting rule: Explicit overrides calculated
+  const finalDrums = explicitDrums > 0 ? explicitDrums : calculatedDrums;
 
   // 4. Block Pallets (משטחי בלוק)
-  let blockPallets = order.depositBlockPallets;
-  if (blockPallets === undefined || blockPallets === null || blockPallets === 0) {
-    let sum = 0;
-    items.forEach(i => {
-      const name = (i.name || '').toLowerCase();
-      const sku = (i.sku || '').toLowerCase();
-      if (name.includes('משטח בלוק') || name.includes('בלוקים') || name.includes('משטחי בלוק') || name.includes('block pallet')) {
-        sum += i.quantity || 1;
-      }
-    });
-    if (sum === 0 && rawText) {
-      const m = rawText.match(/(\d+)\s*(?:x|X|\*|-)?\s*(?:משטח בלוק|בלוקים|משטחי בלוק)/);
-      if (m) sum = parseInt(m[1], 10);
+  let explicitBlockPallets = 0;
+  let calculatedBlockPallets = 0;
+  items.forEach(i => {
+    const name = (i.name || '').toLowerCase();
+    const sku = (i.sku || '').toLowerCase();
+    const qty = i.quantity || 1;
+    if (sku === '60004' || (name.includes('פקדון') && name.includes('בלוק'))) {
+      explicitBlockPallets += qty;
+    } else if (name.includes('משטח בלוק') || name.includes('בלוקים') || name.includes('אבני שפה')) {
+      calculatedBlockPallets += qty;
     }
-    blockPallets = sum;
-  }
+  });
+  // Anti-double-counting rule: Explicit overrides calculated
+  const finalBlockPallets = explicitBlockPallets > 0 ? explicitBlockPallets : calculatedBlockPallets;
 
   return {
-    depositBales: bales,
-    depositPallets: pallets,
-    depositDrums: drums,
-    depositBlockPallets: blockPallets
+    depositBales: order.depositBales && order.depositBales > 0 ? Math.max(order.depositBales, finalBales) : finalBales,
+    depositPallets: order.depositPallets && order.depositPallets > 0 ? Math.max(order.depositPallets, finalPallets) : finalPallets,
+    depositDrums: order.depositDrums && order.depositDrums > 0 ? Math.max(order.depositDrums, finalDrums) : finalDrums,
+    depositBlockPallets: order.depositBlockPallets && order.depositBlockPallets > 0 ? Math.max(order.depositBlockPallets, finalBlockPallets) : finalBlockPallets
   };
 }
 
